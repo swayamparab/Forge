@@ -6,7 +6,7 @@ import {
     timestamp,
     index,
     pgEnum,
-    uniqueIndex,
+    unique,
 } from "drizzle-orm/pg-core";
 
 import { projects } from "./projects.js";
@@ -17,7 +17,9 @@ export const fileTypeEnum = pgEnum("file_type", [
 ]);
 
 export const projectFiles = pgTable("project_files", {
-    id: uuid("id").defaultRandom().primaryKey(),
+    id: uuid("id")
+        .defaultRandom()
+        .primaryKey(),
 
     projectId: uuid("project_id")
         .notNull()
@@ -27,7 +29,9 @@ export const projectFiles = pgTable("project_files", {
 
     parentId: uuid("parent_id"),
 
-    name: varchar("name", { length: 255 }).notNull(),
+    name: varchar("name", {
+        length: 255,
+    }).notNull(),
 
     type: fileTypeEnum("type").notNull(),
 
@@ -45,15 +49,20 @@ export const projectFiles = pgTable("project_files", {
         .defaultNow()
         .notNull(),
 },
+
     (table) => [
-        index("project_files_project_id_idx").on(table.projectId),
+        index("project_files_project_id_idx")
+            .on(table.projectId),
 
-        index("project_files_parent_id_idx").on(table.parentId),
+        index("project_files_parent_id_idx")
+            .on(table.parentId),
 
-        uniqueIndex("project_files_project_parent_name_unique").on(
-            table.projectId,
-            table.parentId,
-            table.name,
-        ),
+        unique("project_files_project_parent_name_unique")
+            .on(
+                table.projectId,
+                table.parentId,
+                table.name,
+            )
+            .nullsNotDistinct(),
     ],
 );

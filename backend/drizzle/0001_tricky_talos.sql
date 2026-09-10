@@ -1,0 +1,3 @@
+DROP INDEX "project_files_project_parent_name_unique";--> statement-breakpoint
+ALTER TABLE "project_files" ADD CONSTRAINT "project_files_parent_same_project_fk" FOREIGN KEY ("parent_id","project_id") REFERENCES "public"."project_files"("id","project_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "project_files" ADD CONSTRAINT "project_files_project_parent_name_unique" UNIQUE NULLS NOT DISTINCT("project_id","parent_id","name");
