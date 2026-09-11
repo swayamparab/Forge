@@ -96,16 +96,10 @@ export async function getFilesController(req: Request, res: Response) {
         });
     }
 
-    const parentId =
-        typeof req.query.parentId === "string"
-            ? req.query.parentId
-            : null;
-
     try {
         const files = await getProjectFiles(
             projectId,
             req.userId,
-            parentId,
         );
 
         return res.status(200).json({
@@ -113,27 +107,14 @@ export async function getFilesController(req: Request, res: Response) {
             files,
         });
     } catch (error) {
-        if (error instanceof Error) {
-            if (error.message === "PROJECT_NOT_FOUND") {
-                return res.status(404).json({
-                    success: false,
-                    message: "Project not found",
-                });
-            }
-
-            if (error.message === "PARENT_NOT_FOUND") {
-                return res.status(404).json({
-                    success: false,
-                    message: "Parent folder not found",
-                });
-            }
-
-            if (error.message === "PARENT_NOT_FOLDER") {
-                return res.status(400).json({
-                    success: false,
-                    message: "Parent must be a folder",
-                });
-            }
+        if (
+            error instanceof Error &&
+            error.message === "PROJECT_NOT_FOUND"
+        ) {
+            return res.status(404).json({
+                success: false,
+                message: "Project not found",
+            });
         }
 
         console.error("Get files error:", error);

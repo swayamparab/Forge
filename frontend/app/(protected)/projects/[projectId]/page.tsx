@@ -1,12 +1,142 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+
+import { useProjectFiles } from "@/hooks/useProjectFiles";
+import type { ProjectFile } from "@/services/file";
+
+interface FileTreeItemProps {
+    file: ProjectFile;
+    filesByParent: Map<string | null, ProjectFile[]>;
+    expandedFolders: Set<string>;
+    onToggleFolder: (fileId: string) => void;
+}
+
+function FileTreeItem({
+    file,
+    filesByParent,
+    expandedFolders,
+    onToggleFolder,
+}: FileTreeItemProps) {
+    const isFolder = file.type === "folder";
+    const isExpanded = expandedFolders.has(file.id);
+
+    const children = filesByParent.get(file.id) ?? [];
+
+    return (
+        <div>
+            <button
+                type="button"
+                onClick={() => {
+                    if (isFolder) {
+                        onToggleFolder(file.id);
+                    }
+                }}
+                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs text-zinc-400 transition hover:bg-zinc-900 hover:text-zinc-200"
+            >
+                {isFolder ? (
+                    <span className="w-3 text-[10px] text-zinc-600">
+                        {isExpanded ? "▼" : "▶"}
+                    </span>
+                ) : (
+                    <span className="w-3" />
+                )}
+
+                <span className="text-sm">
+                    {isFolder ? "📁" : "📄"}
+                </span>
+
+                <span className="truncate">
+                    {file.name}
+                </span>
+            </button>
+
+            {isFolder &&
+                isExpanded &&
+                children.length > 0 && (
+                    <div className="ml-4 border-l border-zinc-800 pl-1">
+                        {children.map((child) => (
+                            <FileTreeItem
+                                key={child.id}
+                                file={child}
+                                filesByParent={
+                                    filesByParent
+                                }
+                                expandedFolders={
+                                    expandedFolders
+                                }
+                                onToggleFolder={
+                                    onToggleFolder
+                                }
+                            />
+                        ))}
+                    </div>
+                )}
+        </div>
+    );
+}
 
 export default function ProjectWorkspacePage() {
     const params = useParams();
 
     const projectId = params.projectId as string;
+
+    const [expandedFolders, setExpandedFolders] =
+        useState<Set<string>>(new Set());
+
+    const filesQuery = useProjectFiles(projectId);
+
+    const files: ProjectFile[] =
+        filesQuery.data?.files ?? [];
+
+    const filesByParent = useMemo(() => {
+        const map = new Map<
+            string | null,
+            ProjectFile[]
+        >();
+
+        for (const file of files) {
+            const parentId = file.parentId;
+
+            if (!map.has(parentId)) {
+                map.set(parentId, []);
+            }
+
+            map.get(parentId)!.push(file);
+        }
+
+        for (const children of map.values()) {
+            children.sort((a, b) => {
+                if (a.type !== b.type) {
+                    return a.type === "folder"
+                        ? -1
+                        : 1;
+                }
+
+                return a.name.localeCompare(b.name);
+            });
+        }
+
+        return map;
+    }, [files]);
+
+    function toggleFolder(fileId: string) {
+        setExpandedFolders((current) => {
+            const next = new Set(current);
+
+            if (next.has(fileId)) {
+                next.delete(fileId);
+            } else {
+                next.add(fileId);
+            }
+
+            return next;
+        });
+    }
+
+    const rootFiles = filesByParent.get(null) ?? [];
 
     return (
         <main className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100">
@@ -54,10 +184,48 @@ export default function ProjectWorkspacePage() {
                         </span>
                     </div>
 
-                    <div className="p-3">
-                        <div className="rounded-md px-2 py-1.5 text-xs text-zinc-500">
-                            No files yet
-                        </div>
+                    <div className="p-2">
+                        {filesQuery.isLoading && (
+                            <p className="px-2 py-2 text-xs text-zinc-600">
+                                Loading files...
+                            </p>
+                        )}
+
+                        {filesQuery.isError && (
+                            <p className="px-2 py-2 text-xs text-red-400">
+                                Failed to load project files
+                            </p>
+                        )}
+
+                        {!filesQuery.isLoading &&
+                            !filesQuery.isError &&
+                            rootFiles.length === 0 && (
+                                <p className="px-2 py-2 text-xs text-zinc-600">
+                                    No files yet
+                                </p>
+                            )}
+
+                        {!filesQuery.isLoading &&
+                            !filesQuery.isError &&
+                            rootFiles.length > 0 && (
+                                <div className="space-y-0.5">
+                                    {rootFiles.map((file) => (
+                                        <FileTreeItem
+                                            key={file.id}
+                                            file={file}
+                                            filesByParent={
+                                                filesByParent
+                                            }
+                                            expandedFolders={
+                                                expandedFolders
+                                            }
+                                            onToggleFolder={
+                                                toggleFolder
+                                            }
+                                        />
+                                    ))}
+                                </div>
+                            )}
                     </div>
                 </aside>
 
@@ -71,6 +239,7 @@ export default function ProjectWorkspacePage() {
                             </span>
 
                             <button
+                                type="button"
                                 className="ml-3 text-zinc-600 transition hover:text-zinc-300"
                                 aria-label="Close tab"
                             >

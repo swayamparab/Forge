@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { db } from "../../db/index.js";
 import { projectFiles, projects } from "../../db/schema/index.js";
@@ -134,7 +134,6 @@ export async function createFile(
 export async function getProjectFiles(
     projectId: string,
     userId: string,
-    parentId?: string | null,
 ) {
     const project = await verifyProjectOwnership(
         projectId,
@@ -143,13 +142,6 @@ export async function getProjectFiles(
 
     if (!project) {
         throw new Error("PROJECT_NOT_FOUND");
-    }
-
-    if (parentId) {
-        await verifyParentFolder(
-            projectId,
-            parentId,
-        );
     }
 
     return db
@@ -165,15 +157,7 @@ export async function getProjectFiles(
         })
         .from(projectFiles)
         .where(
-            parentId
-                ? and(
-                    eq(projectFiles.projectId, projectId),
-                    eq(projectFiles.parentId, parentId),
-                )
-                : and(
-                    eq(projectFiles.projectId, projectId),
-                    isNull(projectFiles.parentId),
-                ),
+            eq(projectFiles.projectId, projectId),
         );
 }
 

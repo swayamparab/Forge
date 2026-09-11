@@ -1,18 +1,19 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
 import Link from "next/link";
 
-import { getCurrentUser, logout } from "@/services/auth";
 import {
-    createProject,
-    getProjects,
-    type Project,
-} from "@/services/project";
+    useCreateProject,
+    useProjects,
+} from "@/hooks/useProjects";
+import { useCurrentUser } from "@/hooks/useAuth";
+import { logout } from "@/services/auth";
 
 export default function DashboardPage() {
-    const [projects, setProjects] = useState<Project[]>([]);
-    const [username, setUsername] = useState("");
+    const userQuery = useCurrentUser();
+    const projectsQuery = useProjects();
+    const createProjectMutation = useCreateProject();
 
     const [projectName, setProjectName] = useState("");
     const [projectDescription, setProjectDescription] =
@@ -21,33 +22,7 @@ export default function DashboardPage() {
     const [showCreateForm, setShowCreateForm] =
         useState(false);
 
-    const [loading, setLoading] = useState(true);
-    const [creating, setCreating] = useState(false);
     const [error, setError] = useState("");
-
-    useEffect(() => {
-        async function loadDashboard() {
-            try {
-                const [userResponse, projectsResponse] =
-                    await Promise.all([
-                        getCurrentUser(),
-                        getProjects(),
-                    ]);
-
-                setUsername(userResponse.user.username);
-                setProjects(projectsResponse.projects);
-            } catch (error) {
-                console.error(
-                    "Failed to load dashboard:",
-                    error,
-                );
-            } finally {
-                setLoading(false);
-            }
-        }
-
-        loadDashboard();
-    }, []);
 
     async function handleCreateProject(
         event: FormEvent<HTMLFormElement>,
@@ -61,32 +36,27 @@ export default function DashboardPage() {
             return;
         }
 
-        setCreating(true);
-
-        try {
-            const response = await createProject({
+        createProjectMutation.mutate(
+            {
                 name: projectName.trim(),
                 description:
                     projectDescription.trim() || undefined,
-            });
-
-            setProjects((currentProjects) => [
-                response.project,
-                ...currentProjects,
-            ]);
-
-            setProjectName("");
-            setProjectDescription("");
-            setShowCreateForm(false);
-        } catch (error) {
-            setError(
-                error instanceof Error
-                    ? error.message
-                    : "Failed to create project",
-            );
-        } finally {
-            setCreating(false);
-        }
+            },
+            {
+                onSuccess: () => {
+                    setProjectName("");
+                    setProjectDescription("");
+                    setShowCreateForm(false);
+                },
+                onError: (error) => {
+                    setError(
+                        error instanceof Error
+                            ? error.message
+                            : "Failed to create project",
+                    );
+                },
+            },
+        );
     }
 
     async function handleLogout() {
@@ -97,6 +67,10 @@ export default function DashboardPage() {
         }
     }
 
+    const loading =
+        userQuery.isLoading ||
+        projectsQuery.isLoading;
+
     if (loading) {
         return (
             <main className="flex min-h-screen items-center justify-center bg-zinc-950 text-sm text-zinc-500">
@@ -104,6 +78,12 @@ export default function DashboardPage() {
             </main>
         );
     }
+
+    const username =
+        userQuery.data?.user.username ?? "";
+
+    const projects =
+        projectsQuery.data?.projects ?? [];
 
     return (
         <main className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -222,9 +202,7 @@ export default function DashboardPage() {
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        setShowCreateForm(
-                                            false,
-                                        );
+                                        setShowCreateForm(false);
                                         setError("");
                                     }}
                                     className="rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200"
@@ -234,10 +212,12 @@ export default function DashboardPage() {
 
                                 <button
                                     type="submit"
-                                    disabled={creating}
+                                    disabled={
+                                        createProjectMutation.isPending
+                                    }
                                     className="rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                    {creating
+                                    {createProjectMutation.isPending
                                         ? "Creating..."
                                         : "Create project"}
                                 </button>
@@ -246,7 +226,17 @@ export default function DashboardPage() {
                     </div>
                 )}
 
-                {projects.length === 0 ? (
+                {projectsQuery.isError ? (
+                    <div className="rounded-xl border border-red-900/50 bg-red-950/20 py-20 text-center">
+                        <h2 className="font-medium text-red-300">
+                            Failed to load projects
+                        </h2>
+
+                        <p className="mt-2 text-sm text-red-400/70">
+                            Please try refreshing the page.
+                        </p>
+                    </div>
+                ) : projects.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-zinc-800 py-20 text-center">
                         <h2 className="font-medium text-zinc-300">
                             No projects yet
