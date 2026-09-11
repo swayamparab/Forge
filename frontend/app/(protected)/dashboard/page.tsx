@@ -74,7 +74,7 @@ export default function DashboardPage() {
     if (loading) {
         return (
             <main className="flex min-h-screen items-center justify-center bg-zinc-950 text-sm text-zinc-500">
-                Loading Forge...
+                Loading Mesh...
             </main>
         );
     }
@@ -93,7 +93,7 @@ export default function DashboardPage() {
                         href="/dashboard"
                         className="text-lg font-semibold tracking-tight"
                     >
-                        Forge
+                        Mesh
                     </Link>
 
                     <div className="flex items-center gap-4">

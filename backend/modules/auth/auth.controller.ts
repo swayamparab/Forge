@@ -17,7 +17,7 @@ export async function signup(req: Request, res: Response) {
 
         const { user, token } = await signupUser(result.data);
 
-        res.cookie("forge_access_token", token, {
+        res.cookie("mesh_access_token", token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: "lax",
@@ -70,7 +70,7 @@ export async function login(req: Request, res: Response) {
 
         const { user, token } = await loginUser(result.data);
 
-        res.cookie("forge_access_token", token, {
+        res.cookie("mesh_access_token", token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: "lax",
@@ -103,7 +103,7 @@ export async function login(req: Request, res: Response) {
 }
 
 export function logout(_req: Request, res: Response) {
-    res.clearCookie("forge_access_token", {
+    res.clearCookie("mesh_access_token", {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",

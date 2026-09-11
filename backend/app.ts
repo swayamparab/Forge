@@ -25,7 +25,7 @@ app.use("/api", fileRoutes);
 app.get("/api/health", (_req, res) => {
   res.json({
     success: true,
-    message: "Forge backend is running",
+    message: "Mesh backend is running",
   });
 });
 

@@ -43,7 +43,7 @@ export default function LoginPage() {
             <div className="w-full max-w-md">
                 <div className="mb-8 text-center">
                     <h1 className="text-3xl font-semibold tracking-tight">
-                        Forge
+                        Mesh
                     </h1>
 
                     <p className="mt-2 text-sm text-zinc-500">
@@ -58,7 +58,7 @@ export default function LoginPage() {
                         </h2>
 
                         <p className="mt-1 text-sm text-zinc-500">
-                            Sign in to continue to Forge.
+                            Sign in to continue to Mesh.
                         </p>
                     </div>
 

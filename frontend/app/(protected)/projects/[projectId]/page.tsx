@@ -283,7 +283,7 @@ export default function ProjectWorkspacePage() {
                         href="/dashboard"
                         className="text-sm font-semibold tracking-tight text-zinc-200 transition hover:text-white"
                     >
-                        Forge
+                        Mesh
                     </Link>
                 </div>
 
@@ -405,7 +405,7 @@ export default function ProjectWorkspacePage() {
                             <div className="flex h-full items-center justify-center">
                                 <div className="text-center">
                                     <h1 className="text-sm font-medium text-zinc-400">
-                                        Forge Workspace
+                                        Mesh Workspace
                                     </h1>
 
                                     <p className="mt-2 text-xs text-zinc-600">

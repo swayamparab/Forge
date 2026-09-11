@@ -35,7 +35,7 @@ export default function ProtectedLayout({
     if (loading) {
         return (
             <main className="flex min-h-screen items-center justify-center bg-zinc-950 text-sm text-zinc-500">
-                Loading Forge...
+                Loading Mesh...
             </main>
         );
     }

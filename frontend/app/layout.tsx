@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Forge",
+  title: "Mesh",
   description: "Collaborative browser-based development environment",
 };
 

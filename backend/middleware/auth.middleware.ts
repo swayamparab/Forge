@@ -7,7 +7,7 @@ export function requireAuth(
     res: Response,
     next: NextFunction,
 ) {
-    const token = req.cookies?.forge_access_token;
+    const token = req.cookies?.mesh_access_token;
 
     if (!token) {
         return res.status(401).json({

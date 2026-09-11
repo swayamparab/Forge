@@ -45,7 +45,7 @@ export default function SignupPage() {
             <div className="w-full max-w-md">
                 <div className="mb-8 text-center">
                     <h1 className="text-3xl font-semibold tracking-tight">
-                        Forge
+                        Mesh
                     </h1>
 
                     <p className="mt-2 text-sm text-zinc-500">
@@ -60,7 +60,7 @@ export default function SignupPage() {
                         </h2>
 
                         <p className="mt-1 text-sm text-zinc-500">
-                            Start building with Forge.
+                            Start building with Mesh.
                         </p>
                     </div>
 
