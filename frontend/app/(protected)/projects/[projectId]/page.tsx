@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
 import { useProjectFiles } from "@/hooks/useProjectFiles";
-import { useFile } from "@/hooks/useFile";
+import { useFile, useUpdateFile } from "@/hooks/useFile";
 import type { ProjectFile } from "@/services/file";
+import CodeEditor from "@/components/editor/CodeEditor";
 
 interface FileTreeItemProps {
     file: ProjectFile;
@@ -66,18 +67,10 @@ function FileTreeItem({
                             <FileTreeItem
                                 key={child.id}
                                 file={child}
-                                filesByParent={
-                                    filesByParent
-                                }
-                                expandedFolders={
-                                    expandedFolders
-                                }
-                                onToggleFolder={
-                                    onToggleFolder
-                                }
-                                onSelectFile={
-                                    onSelectFile
-                                }
+                                filesByParent={filesByParent}
+                                expandedFolders={expandedFolders}
+                                onToggleFolder={onToggleFolder}
+                                onSelectFile={onSelectFile}
                             />
                         ))}
                     </div>
@@ -97,6 +90,12 @@ export default function ProjectWorkspacePage() {
     const [expandedFolders, setExpandedFolders] =
         useState<Set<string>>(new Set());
 
+    const [editorContent, setEditorContent] =
+        useState("");
+
+    const [hasUnsavedChanges, setHasUnsavedChanges] =
+        useState(false);
+
     const filesQuery = useProjectFiles(projectId);
 
     const selectedFileQuery = useFile(
@@ -104,8 +103,23 @@ export default function ProjectWorkspacePage() {
         selectedFileId,
     );
 
+    const updateFileMutation = useUpdateFile();
+
     const files: ProjectFile[] =
         filesQuery.data?.files ?? [];
+
+    const selectedFile =
+        selectedFileQuery.data?.file ?? null;
+
+    useEffect(() => {
+        if (selectedFile) {
+            setEditorContent(selectedFile.content ?? "");
+            setHasUnsavedChanges(false);
+        } else {
+            setEditorContent("");
+            setHasUnsavedChanges(false);
+        }
+    }, [selectedFile]);
 
     const filesByParent = useMemo(() => {
         const map = new Map<
@@ -126,9 +140,7 @@ export default function ProjectWorkspacePage() {
         for (const children of map.values()) {
             children.sort((a, b) => {
                 if (a.type !== b.type) {
-                    return a.type === "folder"
-                        ? -1
-                        : 1;
+                    return a.type === "folder" ? -1 : 1;
                 }
 
                 return a.name.localeCompare(b.name);
@@ -137,6 +149,29 @@ export default function ProjectWorkspacePage() {
 
         return map;
     }, [files]);
+
+    useEffect(() => {
+        function handleBeforeUnload(event: BeforeUnloadEvent) {
+            if (!hasUnsavedChanges) {
+                return;
+            }
+
+            event.preventDefault();
+            event.returnValue = "";
+        }
+
+        window.addEventListener(
+            "beforeunload",
+            handleBeforeUnload,
+        );
+
+        return () => {
+            window.removeEventListener(
+                "beforeunload",
+                handleBeforeUnload,
+            );
+        };
+    }, [hasUnsavedChanges]);
 
     function toggleFolder(fileId: string) {
         setExpandedFolders((current) => {
@@ -152,10 +187,92 @@ export default function ProjectWorkspacePage() {
         });
     }
 
-    const rootFiles = filesByParent.get(null) ?? [];
+    function handleSave() {
+        if (
+            !selectedFileId ||
+            !hasUnsavedChanges ||
+            updateFileMutation.isPending
+        ) {
+            return;
+        }
 
-    const selectedFile =
-        selectedFileQuery.data?.file ?? null;
+        updateFileMutation.mutate(
+            {
+                projectId,
+                fileId: selectedFileId,
+                content: editorContent,
+            },
+            {
+                onSuccess: () => {
+                    setHasUnsavedChanges(false);
+                },
+            },
+        );
+    }
+
+    function handleSelectFile(fileId: string) {
+        if (fileId === selectedFileId) {
+            return;
+        }
+
+        if (hasUnsavedChanges) {
+            const shouldSwitch = window.confirm(
+                "You have unsaved changes. Are you sure you want to switch files?",
+            );
+
+            if (!shouldSwitch) {
+                return;
+            }
+        }
+
+        setSelectedFileId(fileId);
+    }
+
+    function handleCloseFile() {
+        if (hasUnsavedChanges) {
+            const shouldClose = window.confirm(
+                "You have unsaved changes. Are you sure you want to close this file?",
+            );
+
+            if (!shouldClose) {
+                return;
+            }
+        }
+
+        setSelectedFileId(null);
+    }
+
+    useEffect(() => {
+        function handleKeyDown(event: KeyboardEvent) {
+            if (
+                (event.ctrlKey || event.metaKey) &&
+                event.key.toLowerCase() === "s"
+            ) {
+                event.preventDefault();
+
+                handleSave();
+            }
+        }
+
+        window.addEventListener(
+            "keydown",
+            handleKeyDown,
+        );
+
+        return () => {
+            window.removeEventListener(
+                "keydown",
+                handleKeyDown,
+            );
+        };
+    }, [
+        selectedFileId,
+        editorContent,
+        hasUnsavedChanges,
+        updateFileMutation.isPending,
+    ]);
+
+    const rootFiles = filesByParent.get(null) ?? [];
 
     return (
         <main className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100">
@@ -242,7 +359,7 @@ export default function ProjectWorkspacePage() {
                                                 toggleFolder
                                             }
                                             onSelectFile={
-                                                setSelectedFileId
+                                                handleSelectFile
                                             }
                                         />
                                     ))}
@@ -257,6 +374,12 @@ export default function ProjectWorkspacePage() {
                     <div className="flex h-10 shrink-0 items-center border-b border-zinc-800 bg-zinc-900/30">
                         <div className="flex h-full items-center border-r border-zinc-800 bg-zinc-950 px-4">
                             <span className="text-xs text-zinc-300">
+                                {hasUnsavedChanges && (
+                                    <span className="mr-1 text-zinc-400">
+                                        ●
+                                    </span>
+                                )}
+
                                 {selectedFile?.name ??
                                     "Welcome"}
                             </span>
@@ -266,10 +389,8 @@ export default function ProjectWorkspacePage() {
                                     type="button"
                                     className="ml-3 text-zinc-600 transition hover:text-zinc-300"
                                     aria-label="Close tab"
-                                    onClick={() =>
-                                        setSelectedFileId(
-                                            null,
-                                        )
+                                    onClick={
+                                        handleCloseFile
                                     }
                                 >
                                     ×
@@ -313,9 +434,24 @@ export default function ProjectWorkspacePage() {
                         )}
 
                         {selectedFile && (
-                            <pre className="h-full overflow-auto p-6 font-mono text-sm leading-6 text-zinc-300">
-                                {selectedFile.content ?? ""}
-                            </pre>
+                            <CodeEditor
+                                value={editorContent}
+                                language="typescript"
+                                onChange={(value) => {
+                                    const nextValue =
+                                        value ?? "";
+
+                                    setEditorContent(
+                                        nextValue,
+                                    );
+
+                                    setHasUnsavedChanges(
+                                        nextValue !==
+                                        (selectedFile.content ??
+                                            ""),
+                                    );
+                                }}
+                            />
                         )}
                     </div>
                 </section>
@@ -341,7 +477,14 @@ export default function ProjectWorkspacePage() {
             <footer className="flex h-6 shrink-0 items-center justify-between border-t border-zinc-800 bg-zinc-900/70 px-3 text-[10px] text-zinc-500">
                 <div className="flex items-center gap-4">
                     <span>main</span>
-                    <span>Ready</span>
+
+                    <span>
+                        {updateFileMutation.isPending
+                            ? "Saving..."
+                            : hasUnsavedChanges
+                                ? "Unsaved changes"
+                                : "Ready"}
+                    </span>
                 </div>
 
                 <div className="flex items-center gap-4">
