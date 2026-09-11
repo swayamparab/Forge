@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 
 import { useProjectFiles } from "@/hooks/useProjectFiles";
+import { useFile } from "@/hooks/useFile";
 import type { ProjectFile } from "@/services/file";
 
 interface FileTreeItemProps {
@@ -12,6 +13,7 @@ interface FileTreeItemProps {
     filesByParent: Map<string | null, ProjectFile[]>;
     expandedFolders: Set<string>;
     onToggleFolder: (fileId: string) => void;
+    onSelectFile: (fileId: string) => void;
 }
 
 function FileTreeItem({
@@ -19,6 +21,7 @@ function FileTreeItem({
     filesByParent,
     expandedFolders,
     onToggleFolder,
+    onSelectFile,
 }: FileTreeItemProps) {
     const isFolder = file.type === "folder";
     const isExpanded = expandedFolders.has(file.id);
@@ -32,6 +35,8 @@ function FileTreeItem({
                 onClick={() => {
                     if (isFolder) {
                         onToggleFolder(file.id);
+                    } else {
+                        onSelectFile(file.id);
                     }
                 }}
                 className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs text-zinc-400 transition hover:bg-zinc-900 hover:text-zinc-200"
@@ -70,6 +75,9 @@ function FileTreeItem({
                                 onToggleFolder={
                                     onToggleFolder
                                 }
+                                onSelectFile={
+                                    onSelectFile
+                                }
                             />
                         ))}
                     </div>
@@ -83,10 +91,18 @@ export default function ProjectWorkspacePage() {
 
     const projectId = params.projectId as string;
 
+    const [selectedFileId, setSelectedFileId] =
+        useState<string | null>(null);
+
     const [expandedFolders, setExpandedFolders] =
         useState<Set<string>>(new Set());
 
     const filesQuery = useProjectFiles(projectId);
+
+    const selectedFileQuery = useFile(
+        projectId,
+        selectedFileId,
+    );
 
     const files: ProjectFile[] =
         filesQuery.data?.files ?? [];
@@ -137,6 +153,9 @@ export default function ProjectWorkspacePage() {
     }
 
     const rootFiles = filesByParent.get(null) ?? [];
+
+    const selectedFile =
+        selectedFileQuery.data?.file ?? null;
 
     return (
         <main className="flex h-screen flex-col overflow-hidden bg-zinc-950 text-zinc-100">
@@ -222,6 +241,9 @@ export default function ProjectWorkspacePage() {
                                             onToggleFolder={
                                                 toggleFolder
                                             }
+                                            onSelectFile={
+                                                setSelectedFileId
+                                            }
                                         />
                                     ))}
                                 </div>
@@ -235,31 +257,66 @@ export default function ProjectWorkspacePage() {
                     <div className="flex h-10 shrink-0 items-center border-b border-zinc-800 bg-zinc-900/30">
                         <div className="flex h-full items-center border-r border-zinc-800 bg-zinc-950 px-4">
                             <span className="text-xs text-zinc-300">
-                                Welcome
+                                {selectedFile?.name ??
+                                    "Welcome"}
                             </span>
 
-                            <button
-                                type="button"
-                                className="ml-3 text-zinc-600 transition hover:text-zinc-300"
-                                aria-label="Close tab"
-                            >
-                                ×
-                            </button>
+                            {selectedFile && (
+                                <button
+                                    type="button"
+                                    className="ml-3 text-zinc-600 transition hover:text-zinc-300"
+                                    aria-label="Close tab"
+                                    onClick={() =>
+                                        setSelectedFileId(
+                                            null,
+                                        )
+                                    }
+                                >
+                                    ×
+                                </button>
+                            )}
                         </div>
                     </div>
 
                     {/* Editor */}
-                    <div className="flex min-h-0 flex-1 items-center justify-center bg-zinc-950">
-                        <div className="text-center">
-                            <h1 className="text-sm font-medium text-zinc-400">
-                                Forge Workspace
-                            </h1>
+                    <div className="min-h-0 flex-1 overflow-auto bg-zinc-950">
+                        {!selectedFileId && (
+                            <div className="flex h-full items-center justify-center">
+                                <div className="text-center">
+                                    <h1 className="text-sm font-medium text-zinc-400">
+                                        Forge Workspace
+                                    </h1>
 
-                            <p className="mt-2 text-xs text-zinc-600">
-                                Select a file from the Explorer
-                                to start editing.
-                            </p>
-                        </div>
+                                    <p className="mt-2 text-xs text-zinc-600">
+                                        Select a file from the
+                                        Explorer to start
+                                        editing.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
+                        {selectedFileQuery.isLoading && (
+                            <div className="flex h-full items-center justify-center">
+                                <p className="text-xs text-zinc-600">
+                                    Loading file...
+                                </p>
+                            </div>
+                        )}
+
+                        {selectedFileQuery.isError && (
+                            <div className="flex h-full items-center justify-center">
+                                <p className="text-xs text-red-400">
+                                    Failed to load file
+                                </p>
+                            </div>
+                        )}
+
+                        {selectedFile && (
+                            <pre className="h-full overflow-auto p-6 font-mono text-sm leading-6 text-zinc-300">
+                                {selectedFile.content ?? ""}
+                            </pre>
+                        )}
                     </div>
                 </section>
 
