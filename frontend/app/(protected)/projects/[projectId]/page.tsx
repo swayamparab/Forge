@@ -8,6 +8,7 @@ import { useProjectFiles } from "@/hooks/useProjectFiles";
 import { useFile, useUpdateFile } from "@/hooks/useFile";
 import type { ProjectFile } from "@/services/file";
 import CodeEditor from "@/components/editor/CodeEditor";
+import { getLanguageFromFileName } from "@/lib/editor/language";
 
 interface FileTreeItemProps {
     file: ProjectFile;
@@ -436,7 +437,7 @@ export default function ProjectWorkspacePage() {
                         {selectedFile && (
                             <CodeEditor
                                 value={editorContent}
-                                language="typescript"
+                                language={getLanguageFromFileName(selectedFile.name)}
                                 onChange={(value) => {
                                     const nextValue =
                                         value ?? "";
@@ -490,7 +491,7 @@ export default function ProjectWorkspacePage() {
                 <div className="flex items-center gap-4">
                     <span>Ln 1, Col 1</span>
                     <span>UTF-8</span>
-                    <span>TypeScript</span>
+                    <span>{getLanguageFromFileName(selectedFile?.name ?? "")}</span>
                 </div>
             </footer>
         </main>
