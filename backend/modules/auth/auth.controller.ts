@@ -20,7 +20,10 @@ export async function signup(req: Request, res: Response) {
         res.cookie("mesh_access_token", token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
-            sameSite: "none",
+            sameSite:
+                process.env.NODE_ENV === "production"
+                    ? "none"
+                    : "lax",
             maxAge: 15 * 60 * 1000,
             path: "/",
         });
@@ -73,7 +76,10 @@ export async function login(req: Request, res: Response) {
         res.cookie("mesh_access_token", token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
-            sameSite: "none",
+            sameSite:
+                process.env.NODE_ENV === "production"
+                    ? "none"
+                    : "lax",
             maxAge: 15 * 60 * 1000,
             path: "/",
         });
@@ -106,7 +112,10 @@ export function logout(_req: Request, res: Response) {
     res.clearCookie("mesh_access_token", {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "none",
+        sameSite:
+            process.env.NODE_ENV === "production"
+                ? "none"
+                : "lax",
         path: "/",
     });
 

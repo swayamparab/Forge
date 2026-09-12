@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 
 import {
+    deleteFile,
     getFile,
     updateFile,
 } from "@/services/file";
@@ -16,30 +17,62 @@ export function useFile(
     fileId: string | null,
 ) {
     return useQuery({
-        queryKey: ["file", projectId, fileId],
-        queryFn: () => getFile(projectId, fileId!),
-        enabled: Boolean(projectId && fileId),
+        queryKey: [
+            "file",
+            projectId,
+            fileId,
+        ],
+        queryFn: () =>
+            getFile(
+                projectId,
+                fileId!,
+            ),
+        enabled: Boolean(
+            projectId && fileId,
+        ),
     });
 }
 
+interface UpdateFileVariables {
+    projectId: string;
+    fileId: string;
+    name?: string;
+    content?: string;
+    parentId?: string | null;
+}
+
 export function useUpdateFile() {
-    const queryClient = useQueryClient();
+    const queryClient =
+        useQueryClient();
 
     return useMutation({
         mutationFn: ({
             projectId,
             fileId,
+            name,
             content,
-        }: {
-            projectId: string;
-            fileId: string;
-            content: string;
-        }) =>
-            updateFile(projectId, fileId, {
-                content,
-            }),
+            parentId,
+        }: UpdateFileVariables) =>
+            updateFile(
+                projectId,
+                fileId,
+                {
+                    ...(name !== undefined
+                        ? { name }
+                        : {}),
+                    ...(content !== undefined
+                        ? { content }
+                        : {}),
+                    ...(parentId !== undefined
+                        ? { parentId }
+                        : {}),
+                },
+            ),
 
-        onSuccess: (response, variables) => {
+        onSuccess: (
+            response,
+            variables,
+        ) => {
             queryClient.setQueryData(
                 [
                     "file",
@@ -48,6 +81,45 @@ export function useUpdateFile() {
                 ],
                 response,
             );
+
+            queryClient.invalidateQueries({
+                queryKey: [
+                    "project-files",
+                    variables.projectId,
+                ],
+            });
+        },
+    });
+}
+
+export function useDeleteFile() {
+    const queryClient =
+        useQueryClient();
+
+    return useMutation({
+        mutationFn: ({
+            projectId,
+            fileId,
+        }: {
+            projectId: string;
+            fileId: string;
+        }) =>
+            deleteFile(
+                projectId,
+                fileId,
+            ),
+
+        onSuccess: (
+            _response,
+            variables,
+        ) => {
+            queryClient.removeQueries({
+                queryKey: [
+                    "file",
+                    variables.projectId,
+                    variables.fileId,
+                ],
+            });
 
             queryClient.invalidateQueries({
                 queryKey: [

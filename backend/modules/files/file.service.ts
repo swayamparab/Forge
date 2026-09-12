@@ -65,6 +65,41 @@ async function verifyParentFolder(
     return parent;
 }
 
+async function isDescendant(
+    projectId: string,
+    fileId: string,
+    possibleParentId: string,
+) {
+    let currentId: string | null = possibleParentId;
+
+    while (currentId) {
+        if (currentId === fileId) {
+            return true;
+        }
+
+        const [current] = await db
+            .select({
+                parentId: projectFiles.parentId,
+            })
+            .from(projectFiles)
+            .where(
+                and(
+                    eq(projectFiles.id, currentId),
+                    eq(projectFiles.projectId, projectId),
+                ),
+            )
+            .limit(1);
+
+        if (!current) {
+            break;
+        }
+
+        currentId = current.parentId;
+    }
+
+    return false;
+}
+
 export async function createFile(
     projectId: string,
     userId: string,
@@ -240,6 +275,17 @@ export async function updateFile(
             projectId,
             input.parentId,
         );
+
+        if (
+            existingFile.type === "folder" &&
+            await isDescendant(
+                projectId,
+                fileId,
+                input.parentId,
+            )
+        ) {
+            throw new Error("INVALID_PARENT");
+        }
     }
 
     const updateData: {
@@ -265,27 +311,44 @@ export async function updateFile(
         updateData.parentId = input.parentId;
     }
 
-    const [updatedFile] = await db
-        .update(projectFiles)
-        .set(updateData)
-        .where(
-            and(
-                eq(projectFiles.id, fileId),
-                eq(projectFiles.projectId, projectId),
-            ),
-        )
-        .returning({
-            id: projectFiles.id,
-            projectId: projectFiles.projectId,
-            parentId: projectFiles.parentId,
-            name: projectFiles.name,
-            type: projectFiles.type,
-            content: projectFiles.content,
-            createdAt: projectFiles.createdAt,
-            updatedAt: projectFiles.updatedAt,
-        });
+    try {
+        const [updatedFile] = await db
+            .update(projectFiles)
+            .set(updateData)
+            .where(
+                and(
+                    eq(projectFiles.id, fileId),
+                    eq(projectFiles.projectId, projectId),
+                ),
+            )
+            .returning({
+                id: projectFiles.id,
+                projectId: projectFiles.projectId,
+                parentId: projectFiles.parentId,
+                name: projectFiles.name,
+                type: projectFiles.type,
+                content: projectFiles.content,
+                createdAt: projectFiles.createdAt,
+                updatedAt: projectFiles.updatedAt,
+            });
 
-    return updatedFile;
+        if (!updatedFile) {
+            throw new Error("FILE_UPDATE_FAILED");
+        }
+
+        return updatedFile;
+    } catch (error) {
+        if (
+            error instanceof Error &&
+            error.message.includes(
+                "project_files_project_parent_name_unique",
+            )
+        ) {
+            throw new Error("FILE_NAME_EXISTS");
+        }
+
+        throw error;
+    }
 }
 
 export async function deleteFile(
@@ -302,19 +365,64 @@ export async function deleteFile(
         throw new Error("PROJECT_NOT_FOUND");
     }
 
-    const [deletedFile] = await db
-        .delete(projectFiles)
+    const [file] = await db
+        .select({
+            id: projectFiles.id,
+            name: projectFiles.name,
+            type: projectFiles.type,
+        })
+        .from(projectFiles)
         .where(
             and(
                 eq(projectFiles.id, fileId),
                 eq(projectFiles.projectId, projectId),
             ),
         )
-        .returning({
-            id: projectFiles.id,
-            name: projectFiles.name,
-            type: projectFiles.type,
-        });
+        .limit(1);
 
-    return deletedFile;
+    if (!file) {
+        throw new Error("FILE_NOT_FOUND");
+    }
+
+    async function deleteRecursive(
+        currentFileId: string,
+    ) {
+        const children = await db
+            .select({
+                id: projectFiles.id,
+            })
+            .from(projectFiles)
+            .where(
+                and(
+                    eq(projectFiles.projectId, projectId),
+                    eq(
+                        projectFiles.parentId,
+                        currentFileId,
+                    ),
+                ),
+            );
+
+        for (const child of children) {
+            await deleteRecursive(child.id);
+        }
+
+        await db
+            .delete(projectFiles)
+            .where(
+                and(
+                    eq(
+                        projectFiles.id,
+                        currentFileId,
+                    ),
+                    eq(
+                        projectFiles.projectId,
+                        projectId,
+                    ),
+                ),
+            );
+    }
+
+    await deleteRecursive(fileId);
+
+    return file;
 }

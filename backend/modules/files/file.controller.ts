@@ -299,21 +299,49 @@ export async function deleteFileController(req: Request, res: Response) {
             file,
         });
     } catch (error) {
-        if (
-            error instanceof Error &&
-            error.message === "PROJECT_NOT_FOUND"
-        ) {
-            return res.status(404).json({
-                success: false,
-                message: "Project not found",
-            });
-        }
+        console.error(
+            "Delete file error:",
+            error,
+        );
 
-        console.error("Delete file error:", error);
+        if (error instanceof Error) {
+            if (
+                error.message ===
+                "PROJECT_NOT_FOUND"
+            ) {
+                return res.status(404).json({
+                    success: false,
+                    message:
+                        "Project not found",
+                });
+            }
+
+            if (
+                error.message ===
+                "FILE_NOT_FOUND"
+            ) {
+                return res.status(404).json({
+                    success: false,
+                    message:
+                        "File not found",
+                });
+            }
+
+            console.error(
+                "Delete error message:",
+                error.message,
+            );
+
+            console.error(
+                "Delete error stack:",
+                error.stack,
+            );
+        }
 
         return res.status(500).json({
             success: false,
-            message: "Failed to delete file",
+            message:
+                "Failed to delete file",
         });
     }
 }

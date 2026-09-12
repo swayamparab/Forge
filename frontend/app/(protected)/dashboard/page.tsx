@@ -1,21 +1,44 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import {
+    FormEvent,
+    useEffect,
+    useState,
+} from "react";
 import Link from "next/link";
 
 import {
     useCreateProject,
+    useDeleteProject,
     useProjects,
+    useUpdateProject,
 } from "@/hooks/useProjects";
 import { useCurrentUser } from "@/hooks/useAuth";
 import { logout } from "@/services/auth";
 
+type Dialog =
+    | {
+        type: "edit" | "delete";
+        projectId: string;
+    }
+    | null;
+
 export default function DashboardPage() {
     const userQuery = useCurrentUser();
     const projectsQuery = useProjects();
-    const createProjectMutation = useCreateProject();
 
-    const [projectName, setProjectName] = useState("");
+    const createProjectMutation =
+        useCreateProject();
+
+    const updateProjectMutation =
+        useUpdateProject();
+
+    const deleteProjectMutation =
+        useDeleteProject();
+
+    const [projectName, setProjectName] =
+        useState("");
+
     const [projectDescription, setProjectDescription] =
         useState("");
 
@@ -23,6 +46,15 @@ export default function DashboardPage() {
         useState(false);
 
     const [error, setError] = useState("");
+
+    const [dialog, setDialog] =
+        useState<Dialog>(null);
+
+    const [editName, setEditName] =
+        useState("");
+
+    const [editDescription, setEditDescription] =
+        useState("");
 
     async function handleCreateProject(
         event: FormEvent<HTMLFormElement>,
@@ -32,7 +64,9 @@ export default function DashboardPage() {
         setError("");
 
         if (!projectName.trim()) {
-            setError("Project name is required");
+            setError(
+                "Project name is required",
+            );
             return;
         }
 
@@ -40,7 +74,8 @@ export default function DashboardPage() {
             {
                 name: projectName.trim(),
                 description:
-                    projectDescription.trim() || undefined,
+                    projectDescription.trim() ||
+                    undefined,
             },
             {
                 onSuccess: () => {
@@ -58,6 +93,147 @@ export default function DashboardPage() {
             },
         );
     }
+
+    function openEditDialog(
+        projectId: string,
+    ) {
+        const project =
+            projectsQuery.data?.projects.find(
+                (item) =>
+                    item.id === projectId,
+            );
+
+        if (!project) {
+            return;
+        }
+
+        setEditName(project.name);
+        setEditDescription(
+            project.description ?? "",
+        );
+
+        setDialog({
+            type: "edit",
+            projectId,
+        });
+    }
+
+    function openDeleteDialog(
+        projectId: string,
+    ) {
+        setDialog({
+            type: "delete",
+            projectId,
+        });
+    }
+
+    function closeDialog() {
+        if (
+            updateProjectMutation.isPending ||
+            deleteProjectMutation.isPending
+        ) {
+            return;
+        }
+
+        setDialog(null);
+    }
+
+    function handleEditProject(
+        event: FormEvent<HTMLFormElement>,
+    ) {
+        event.preventDefault();
+
+        if (!dialog || dialog.type !== "edit") {
+            return;
+        }
+
+        const name = editName.trim();
+
+        if (!name) {
+            return;
+        }
+
+        updateProjectMutation.mutate(
+            {
+                projectId: dialog.projectId,
+                data: {
+                    name,
+                    description:
+                        editDescription.trim(),
+                },
+            },
+            {
+                onSuccess: () => {
+                    setDialog(null);
+                },
+                onError: (error: any) => {
+                    if (
+                        error?.response?.status ===
+                        409
+                    ) {
+                        return;
+                    }
+
+                    console.error(
+                        "Update project error:",
+                        error,
+                    );
+                },
+            },
+        );
+    }
+
+    function handleDeleteProject() {
+        if (
+            !dialog ||
+            dialog.type !== "delete"
+        ) {
+            return;
+        }
+
+        deleteProjectMutation.mutate(
+            dialog.projectId,
+            {
+                onSuccess: () => {
+                    setDialog(null);
+                },
+                onError: (error) => {
+                    console.error(
+                        "Delete project error:",
+                        error,
+                    );
+                },
+            },
+        );
+    }
+
+    useEffect(() => {
+        function handleEscape(
+            event: KeyboardEvent,
+        ) {
+            if (event.key === "Escape") {
+                closeDialog();
+            }
+        }
+
+        if (dialog) {
+            document.addEventListener(
+                "keydown",
+                handleEscape,
+            );
+        }
+
+        return () => {
+            document.removeEventListener(
+                "keydown",
+                handleEscape,
+            );
+        };
+    }, [
+        dialog,
+        updateProjectMutation.isPending,
+        deleteProjectMutation.isPending,
+    ]);
 
     async function handleLogout() {
         try {
@@ -84,6 +260,15 @@ export default function DashboardPage() {
 
     const projects =
         projectsQuery.data?.projects ?? [];
+
+    const activeProject =
+        dialog
+            ? projects.find(
+                (project) =>
+                    project.id ===
+                    dialog.projectId,
+            )
+            : null;
 
     return (
         <main className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -127,7 +312,8 @@ export default function DashboardPage() {
                     <button
                         onClick={() =>
                             setShowCreateForm(
-                                (current) => !current,
+                                (current) =>
+                                    !current,
                             )
                         }
                         className="rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 transition hover:bg-white"
@@ -143,7 +329,9 @@ export default function DashboardPage() {
                         </h2>
 
                         <form
-                            onSubmit={handleCreateProject}
+                            onSubmit={
+                                handleCreateProject
+                            }
                             className="space-y-4"
                         >
                             <div>
@@ -157,9 +345,13 @@ export default function DashboardPage() {
                                 <input
                                     id="project-name"
                                     value={projectName}
-                                    onChange={(event) =>
+                                    onChange={(
+                                        event,
+                                    ) =>
                                         setProjectName(
-                                            event.target.value,
+                                            event
+                                                .target
+                                                .value,
                                         )
                                     }
                                     placeholder="My project"
@@ -179,10 +371,16 @@ export default function DashboardPage() {
 
                                 <textarea
                                     id="project-description"
-                                    value={projectDescription}
-                                    onChange={(event) =>
+                                    value={
+                                        projectDescription
+                                    }
+                                    onChange={(
+                                        event,
+                                    ) =>
                                         setProjectDescription(
-                                            event.target.value,
+                                            event
+                                                .target
+                                                .value,
                                         )
                                     }
                                     placeholder="What are you building?"
@@ -202,7 +400,9 @@ export default function DashboardPage() {
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        setShowCreateForm(false);
+                                        setShowCreateForm(
+                                            false,
+                                        );
                                         setError("");
                                     }}
                                     className="rounded-lg px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200"
@@ -233,7 +433,8 @@ export default function DashboardPage() {
                         </h2>
 
                         <p className="mt-2 text-sm text-red-400/70">
-                            Please try refreshing the page.
+                            Please try refreshing the
+                            page.
                         </p>
                     </div>
                 ) : projects.length === 0 ? (
@@ -243,38 +444,337 @@ export default function DashboardPage() {
                         </h2>
 
                         <p className="mt-2 text-sm text-zinc-500">
-                            Create your first project to get
-                            started.
+                            Create your first project to
+                            get started.
                         </p>
                     </div>
                 ) : (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {projects.map((project) => (
-                            <Link
-                                key={project.id}
-                                href={`/projects/${project.id}`}
-                                className="group rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 transition hover:border-zinc-700 hover:bg-zinc-900"
-                            >
-                                <h2 className="font-medium text-zinc-200 group-hover:text-white">
-                                    {project.name}
-                                </h2>
+                        {projects.map(
+                            (project) => (
+                                <div
+                                    key={
+                                        project.id
+                                    }
+                                    className="group relative rounded-xl border border-zinc-800 bg-zinc-900/40 transition hover:border-zinc-700 hover:bg-zinc-900"
+                                >
+                                    <Link
+                                        href={`/projects/${project.id}`}
+                                        className="block p-5 pr-14"
+                                    >
+                                        <h2 className="font-medium text-zinc-200 group-hover:text-white">
+                                            {
+                                                project.name
+                                            }
+                                        </h2>
 
-                                <p className="mt-2 min-h-10 text-sm text-zinc-500">
-                                    {project.description ||
-                                        "No description"}
-                                </p>
+                                        <p className="mt-2 min-h-10 text-sm text-zinc-500">
+                                            {project.description ||
+                                                "No description"}
+                                        </p>
 
-                                <div className="mt-5 text-xs text-zinc-600">
-                                    Updated{" "}
-                                    {new Date(
-                                        project.updatedAt,
-                                    ).toLocaleDateString()}
+                                        <div className="mt-5 text-xs text-zinc-600">
+                                            Updated{" "}
+                                            {new Date(
+                                                project.updatedAt,
+                                            ).toLocaleDateString()}
+                                        </div>
+                                    </Link>
+
+                                    <div className="absolute right-3 top-3">
+                                        <button
+                                            type="button"
+                                            aria-label={`Actions for ${project.name}`}
+                                            onClick={(
+                                                event,
+                                            ) => {
+                                                event.preventDefault();
+                                                event.stopPropagation();
+
+                                                const menu =
+                                                    document.getElementById(
+                                                        `project-menu-${project.id}`,
+                                                    );
+
+                                                if (
+                                                    menu
+                                                ) {
+                                                    menu.classList.toggle(
+                                                        "hidden",
+                                                    );
+                                                }
+                                            }}
+                                            className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 opacity-0 transition hover:bg-zinc-800 hover:text-zinc-200 group-hover:opacity-100"
+                                        >
+                                            <span className="text-lg leading-none">
+                                                ⋯
+                                            </span>
+                                        </button>
+
+                                        <div
+                                            id={`project-menu-${project.id}`}
+                                            className="absolute right-0 top-9 z-20 hidden w-36 overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950 py-1 shadow-xl"
+                                        >
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    openEditDialog(
+                                                        project.id,
+                                                    );
+
+                                                    document
+                                                        .getElementById(
+                                                            `project-menu-${project.id}`,
+                                                        )
+                                                        ?.classList.add(
+                                                            "hidden",
+                                                        );
+                                                }}
+                                                className="block w-full px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-900 hover:text-white"
+                                            >
+                                                Edit project
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    openDeleteDialog(
+                                                        project.id,
+                                                    );
+
+                                                    document
+                                                        .getElementById(
+                                                            `project-menu-${project.id}`,
+                                                        )
+                                                        ?.classList.add(
+                                                            "hidden",
+                                                        );
+                                                }}
+                                                className="block w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-zinc-900 hover:text-red-300"
+                                            >
+                                                Delete project
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
-                            </Link>
-                        ))}
+                            ),
+                        )}
                     </div>
                 )}
             </div>
+
+            {dialog &&
+                activeProject && (
+                    <div
+                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 px-4 backdrop-blur-[2px]"
+                        onMouseDown={(
+                            event,
+                        ) => {
+                            if (
+                                event.target ===
+                                event.currentTarget
+                            ) {
+                                closeDialog();
+                            }
+                        }}
+                    >
+                        <div
+                            className="w-full max-w-md overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-2xl"
+                            onMouseDown={(
+                                event,
+                            ) =>
+                                event.stopPropagation()
+                            }
+                        >
+                            {dialog.type ===
+                                "edit" ? (
+                                <>
+                                    <div className="border-b border-zinc-800 px-5 py-4">
+                                        <h2 className="text-sm font-medium text-zinc-100">
+                                            Edit project
+                                        </h2>
+                                    </div>
+
+                                    <form
+                                        onSubmit={
+                                            handleEditProject
+                                        }
+                                    >
+                                        <div className="space-y-4 px-5 py-5">
+                                            <div>
+                                                <label
+                                                    htmlFor="edit-project-name"
+                                                    className="mb-1.5 block text-sm text-zinc-400"
+                                                >
+                                                    Name
+                                                </label>
+
+                                                <input
+                                                    id="edit-project-name"
+                                                    value={
+                                                        editName
+                                                    }
+                                                    onChange={(
+                                                        event,
+                                                    ) =>
+                                                        setEditName(
+                                                            event
+                                                                .target
+                                                                .value,
+                                                        )
+                                                    }
+                                                    maxLength={
+                                                        100
+                                                    }
+                                                    autoFocus
+                                                    disabled={
+                                                        updateProjectMutation.isPending
+                                                    }
+                                                    className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-zinc-500 disabled:opacity-50"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label
+                                                    htmlFor="edit-project-description"
+                                                    className="mb-1.5 block text-sm text-zinc-400"
+                                                >
+                                                    Description
+                                                </label>
+
+                                                <textarea
+                                                    id="edit-project-description"
+                                                    value={
+                                                        editDescription
+                                                    }
+                                                    onChange={(
+                                                        event,
+                                                    ) =>
+                                                        setEditDescription(
+                                                            event
+                                                                .target
+                                                                .value,
+                                                        )
+                                                    }
+                                                    maxLength={
+                                                        500
+                                                    }
+                                                    rows={
+                                                        3
+                                                    }
+                                                    disabled={
+                                                        updateProjectMutation.isPending
+                                                    }
+                                                    className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-zinc-500 disabled:opacity-50"
+                                                />
+                                            </div>
+
+                                            {updateProjectMutation.isError && (
+                                                <p className="text-sm text-red-400">
+                                                    {(
+                                                        updateProjectMutation.error as any
+                                                    )?.response
+                                                        ?.status ===
+                                                        409
+                                                        ? "A project with this name already exists."
+                                                        : "Failed to update project."}
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        <div className="flex justify-end gap-2 border-t border-zinc-800 px-5 py-3">
+                                            <button
+                                                type="button"
+                                                onClick={
+                                                    closeDialog
+                                                }
+                                                disabled={
+                                                    updateProjectMutation.isPending
+                                                }
+                                                className="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:bg-zinc-900 hover:text-zinc-100 disabled:opacity-50"
+                                            >
+                                                Cancel
+                                            </button>
+
+                                            <button
+                                                type="submit"
+                                                disabled={
+                                                    updateProjectMutation.isPending ||
+                                                    !editName.trim()
+                                                }
+                                                className="rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                {updateProjectMutation.isPending
+                                                    ? "Saving..."
+                                                    : "Save changes"}
+                                            </button>
+                                        </div>
+                                    </form>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="border-b border-zinc-800 px-5 py-4">
+                                        <h2 className="text-sm font-medium text-zinc-100">
+                                            Delete project
+                                        </h2>
+                                    </div>
+
+                                    <div className="px-5 py-5">
+                                        <p className="text-sm leading-6 text-zinc-400">
+                                            Delete{" "}
+                                            <span className="font-medium text-zinc-100">
+                                                "
+                                                {
+                                                    activeProject.name
+                                                }
+                                                "
+                                            </span>
+                                            ?
+                                        </p>
+
+                                        <p className="mt-2 text-sm leading-6 text-zinc-500">
+                                            This will permanently
+                                            delete the project and
+                                            everything inside it.
+                                            This action cannot be
+                                            undone.
+                                        </p>
+                                    </div>
+
+                                    <div className="flex justify-end gap-2 border-t border-zinc-800 px-5 py-3">
+                                        <button
+                                            type="button"
+                                            onClick={
+                                                closeDialog
+                                            }
+                                            disabled={
+                                                deleteProjectMutation.isPending
+                                            }
+                                            className="rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:bg-zinc-900 hover:text-zinc-100 disabled:opacity-50"
+                                        >
+                                            Cancel
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={
+                                                handleDeleteProject
+                                            }
+                                            disabled={
+                                                deleteProjectMutation.isPending
+                                            }
+                                            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            {deleteProjectMutation.isPending
+                                                ? "Deleting..."
+                                                : "Delete project"}
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                )}
         </main>
     );
 }
