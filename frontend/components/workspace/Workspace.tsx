@@ -16,7 +16,7 @@ import {
 import {
     useFile,
     useUpdateFile,
-    useDeleteFile
+    useDeleteFile,
 } from "@/hooks/useFile";
 
 import type { ProjectFile } from "@/services/file";
@@ -35,13 +35,25 @@ interface WorkspaceProps {
     projectId: string;
 }
 
+interface OpenFile {
+    id: string;
+    name: string;
+    content: string;
+    savedContent: string;
+}
+
 export default function Workspace({
     projectId,
 }: WorkspaceProps) {
     const [
-        selectedFileId,
-        setSelectedFileId,
+        activeFileId,
+        setActiveFileId,
     ] = useState<string | null>(null);
+
+    const [
+        openFiles,
+        setOpenFiles,
+    ] = useState<OpenFile[]>([]);
 
     const [
         selectedFolderId,
@@ -54,16 +66,6 @@ export default function Workspace({
     ] = useState<Set<string>>(
         new Set(),
     );
-
-    const [
-        editorContent,
-        setEditorContent,
-    ] = useState("");
-
-    const [
-        hasUnsavedChanges,
-        setHasUnsavedChanges,
-    ] = useState(false);
 
     const [
         newItemType,
@@ -112,7 +114,7 @@ export default function Workspace({
     const selectedFileQuery =
         useFile(
             projectId,
-            selectedFileId,
+            activeFileId,
         );
 
     const updateFileMutation =
@@ -134,23 +136,99 @@ export default function Workspace({
         selectedFileQuery.data?.file ??
         null;
 
-    useEffect(() => {
-        if (selectedFile) {
-            setEditorContent(
-                selectedFile.content ??
-                "",
-            );
+    const activeOpenFile =
+        openFiles.find(
+            (file) =>
+                file.id === activeFileId,
+        ) ?? null;
 
-            setHasUnsavedChanges(
-                false,
-            );
-        } else {
-            setEditorContent("");
-            setHasUnsavedChanges(
-                false,
-            );
+    const hasUnsavedChanges =
+        openFiles.some(
+            (file) =>
+                file.content !==
+                file.savedContent,
+        );
+
+    const activeFileHasUnsavedChanges =
+        activeOpenFile
+            ? activeOpenFile.content !==
+            activeOpenFile.savedContent
+            : false;
+
+    /*
+     * When a file is selected from the Explorer,
+     * fetch it from the backend and add it to the
+     * open tabs if it isn't already open.
+     */
+    useEffect(() => {
+        if (!selectedFile) {
+            return;
         }
+
+        setOpenFiles((current) => {
+            const alreadyOpen =
+                current.some(
+                    (file) =>
+                        file.id ===
+                        selectedFile.id,
+                );
+
+            if (alreadyOpen) {
+                return current;
+            }
+
+            const content =
+                selectedFile.content ??
+                "";
+
+            return [
+                ...current,
+                {
+                    id: selectedFile.id,
+                    name: selectedFile.name,
+                    content,
+                    savedContent: content,
+                },
+            ];
+        });
     }, [selectedFile]);
+
+    /*
+     * Keep tab names in sync with the Explorer.
+     * This is especially useful after a rename.
+     */
+    useEffect(() => {
+        if (files.length === 0) {
+            return;
+        }
+
+        setOpenFiles((current) =>
+            current.map((openFile) => {
+                const file =
+                    files.find(
+                        (item) =>
+                            item.id ===
+                            openFile.id,
+                    );
+
+                if (!file) {
+                    return openFile;
+                }
+
+                if (
+                    file.name ===
+                    openFile.name
+                ) {
+                    return openFile;
+                }
+
+                return {
+                    ...openFile,
+                    name: file.name,
+                };
+            }),
+        );
+    }, [files]);
 
     const filesByParent = useMemo(() => {
         const map = new Map<
@@ -197,6 +275,10 @@ export default function Workspace({
         return map;
     }, [files]);
 
+    /*
+     * Warn before leaving the workspace if ANY
+     * open tab contains unsaved changes.
+     */
     useEffect(() => {
         function handleBeforeUnload(
             event: BeforeUnloadEvent,
@@ -224,6 +306,10 @@ export default function Workspace({
         };
     }, [hasUnsavedChanges]);
 
+    /*
+     * Close context menu when clicking elsewhere
+     * or pressing Escape.
+     */
     useEffect(() => {
         function handleOutsideContextMenuClick(
             event: MouseEvent,
@@ -312,10 +398,10 @@ export default function Workspace({
             folderId,
         );
 
-        setSelectedFileId(
-            null,
-        );
-
+        /*
+         * Selecting a folder should NOT close the
+         * currently active editor tab.
+         */
         setContextMenu(null);
     }
 
@@ -324,55 +410,28 @@ export default function Workspace({
             null,
         );
 
-        setSelectedFileId(
-            null,
-        );
-
+        /*
+         * Do not clear activeFileId here.
+         * The editor should stay open when the
+         * Explorer background is clicked.
+         */
         setContextMenu(null);
     }
 
     function handleSelectFile(
         fileId: string,
     ) {
-        if (
-            fileId ===
-            selectedFileId
-        ) {
-            setSelectedFolderId(
-                null,
-            );
+        setActiveFileId(fileId);
 
-            setContextMenu(null);
-
-            return;
-        }
-
-        if (hasUnsavedChanges) {
-            const shouldSwitch =
-                window.confirm(
-                    "You have unsaved changes. Are you sure you want to switch files?",
-                );
-
-            if (!shouldSwitch) {
-                return;
-            }
-        }
-
-        setSelectedFileId(
-            fileId,
-        );
-
-        setSelectedFolderId(
-            null,
-        );
-
+        setSelectedFolderId(null);
         setContextMenu(null);
     }
 
     function handleSave() {
         if (
-            !selectedFileId ||
-            !hasUnsavedChanges ||
+            !activeOpenFile ||
+            activeOpenFile.content ===
+            activeOpenFile.savedContent ||
             updateFileMutation.isPending
         ) {
             return;
@@ -381,15 +440,24 @@ export default function Workspace({
         updateFileMutation.mutate(
             {
                 projectId,
-                fileId:
-                    selectedFileId,
-                content:
-                    editorContent,
+                fileId: activeOpenFile.id,
+                content: activeOpenFile.content,
             },
             {
                 onSuccess: () => {
-                    setHasUnsavedChanges(
-                        false,
+                    setOpenFiles(
+                        (current) =>
+                            current.map(
+                                (file) =>
+                                    file.id ===
+                                        activeOpenFile.id
+                                        ? {
+                                            ...file,
+                                            savedContent:
+                                                file.content,
+                                        }
+                                        : file,
+                            ),
                     );
                 },
             },
@@ -422,13 +490,17 @@ export default function Workspace({
         setContextMenu(null);
     }
 
-    function handleDialogConfirm(value?: string) {
+    function handleDialogConfirm(
+        value?: string,
+    ) {
         if (!dialog) {
             return;
         }
 
         const file = files.find(
-            (item) => item.id === dialog.fileId,
+            (item) =>
+                item.id ===
+                dialog.fileId,
         );
 
         if (!file) {
@@ -436,8 +508,14 @@ export default function Workspace({
             return;
         }
 
-        if (dialog.type === "rename") {
-            const newName = value?.trim();
+        /*
+         * RENAME
+         */
+        if (
+            dialog.type === "rename"
+        ) {
+            const newName =
+                value?.trim();
 
             if (!newName) {
                 return;
@@ -450,12 +528,41 @@ export default function Workspace({
                     name: newName,
                 },
                 {
-                    onSuccess: () => {
+                    onSuccess: (
+                        response,
+                    ) => {
+                        /*
+                         * Update the open tab immediately
+                         * if this file is currently open.
+                         */
+                        setOpenFiles(
+                            (current) =>
+                                current.map(
+                                    (
+                                        openFile,
+                                    ) =>
+                                        openFile.id ===
+                                            file.id
+                                            ? {
+                                                ...openFile,
+                                                name:
+                                                    response
+                                                        .file
+                                                        .name,
+                                            }
+                                            : openFile,
+                                ),
+                        );
+
                         setDialog(null);
                     },
-                    onError: (error: any) => {
+                    onError: (
+                        error: any,
+                    ) => {
                         if (
-                            error?.response?.status === 409
+                            error?.response
+                                ?.status ===
+                            409
                         ) {
                             window.alert(
                                 "A file or folder with this name already exists here.",
@@ -473,35 +580,48 @@ export default function Workspace({
             return;
         }
 
-        if (dialog.type === "move") {
+        /*
+         * MOVE
+         */
+        if (
+            dialog.type === "move"
+        ) {
             updateFileMutation.mutate(
                 {
                     projectId,
                     fileId: file.id,
-                    parentId: value || null,
+                    parentId:
+                        value ||
+                        null,
                 },
                 {
                     onSuccess: () => {
                         setDialog(null);
                     },
-                    onError: (error: any) => {
+                    onError: (
+                        error: any,
+                    ) => {
                         if (
-                            error?.response?.status ===
+                            error?.response
+                                ?.status ===
                             409
                         ) {
                             window.alert(
                                 "A file or folder with this name already exists in the destination.",
                             );
+
                             return;
                         }
 
                         if (
-                            error?.response?.status ===
+                            error?.response
+                                ?.status ===
                             400
                         ) {
                             window.alert(
                                 "This item cannot be moved to that folder.",
                             );
+
                             return;
                         }
 
@@ -515,6 +635,9 @@ export default function Workspace({
             return;
         }
 
+        /*
+         * DELETE
+         */
         deleteFileMutation.mutate(
             {
                 projectId,
@@ -522,56 +645,146 @@ export default function Workspace({
             },
             {
                 onSuccess: () => {
-                    let shouldClearSelectedFile =
-                        selectedFileId === file.id;
+                    /*
+                     * Find every open tab that should
+                     * disappear because of this deletion.
+                     *
+                     * For a file:
+                     *   remove that file.
+                     *
+                     * For a folder:
+                     *   remove the folder and every
+                     *   descendant file/folder tab.
+                     */
+                    const deletedIds =
+                        new Set<string>();
+
+                    deletedIds.add(
+                        file.id,
+                    );
 
                     if (
-                        file.type === "folder" &&
-                        selectedFileId
+                        file.type ===
+                        "folder"
                     ) {
-                        let currentFile = files.find(
-                            (item) =>
-                                item.id ===
-                                selectedFileId,
-                        );
+                        let changed =
+                            true;
 
-                        while (currentFile?.parentId) {
-                            if (
-                                currentFile.parentId ===
-                                file.id
-                            ) {
-                                shouldClearSelectedFile =
-                                    true;
-                                break;
+                        while (changed) {
+                            changed =
+                                false;
+
+                            for (const item of files) {
+                                if (
+                                    item.parentId &&
+                                    deletedIds.has(
+                                        item.parentId,
+                                    ) &&
+                                    !deletedIds.has(
+                                        item.id,
+                                    )
+                                ) {
+                                    deletedIds.add(
+                                        item.id,
+                                    );
+
+                                    changed =
+                                        true;
+                                }
                             }
-
-                            currentFile = files.find(
-                                (item) =>
-                                    item.id ===
-                                    currentFile?.parentId,
-                            );
                         }
                     }
 
-                    if (shouldClearSelectedFile) {
-                        setSelectedFileId(null);
-                        setEditorContent("");
-                        setHasUnsavedChanges(false);
+                    const remainingOpenFiles =
+                        openFiles.filter(
+                            (openFile) =>
+                                !deletedIds.has(
+                                    openFile.id,
+                                ),
+                        );
+
+                    /*
+                     * If the active tab was deleted,
+                     * choose the next available tab.
+                     */
+                    if (
+                        activeFileId &&
+                        deletedIds.has(
+                            activeFileId,
+                        )
+                    ) {
+                        const deletedIndex =
+                            openFiles.findIndex(
+                                (
+                                    openFile,
+                                ) =>
+                                    openFile.id ===
+                                    activeFileId,
+                            );
+
+                        const nextFile =
+                            openFiles
+                                .slice(
+                                    deletedIndex +
+                                    1,
+                                )
+                                .find(
+                                    (
+                                        openFile,
+                                    ) =>
+                                        !deletedIds.has(
+                                            openFile.id,
+                                        ),
+                                ) ??
+                            openFiles
+                                .slice(
+                                    0,
+                                    deletedIndex,
+                                )
+                                .reverse()
+                                .find(
+                                    (
+                                        openFile,
+                                    ) =>
+                                        !deletedIds.has(
+                                            openFile.id,
+                                        ),
+                                ) ??
+                            null;
+
+                        setActiveFileId(
+                            nextFile?.id ??
+                            null,
+                        );
                     }
 
+                    setOpenFiles(
+                        remainingOpenFiles,
+                    );
+
                     if (
-                        selectedFolderId === file.id
+                        deletedIds.has(
+                            selectedFolderId ??
+                            "",
+                        )
                     ) {
-                        setSelectedFolderId(null);
+                        setSelectedFolderId(
+                            null,
+                        );
                     }
 
                     setExpandedFolders(
                         (current) => {
-                            const next = new Set(
-                                current,
-                            );
+                            const next =
+                                new Set(
+                                    current,
+                                );
 
-                            next.delete(file.id);
+                            for (const id of deletedIds) {
+                                next.delete(
+                                    id,
+                                );
+                            }
 
                             return next;
                         },
@@ -588,11 +801,27 @@ export default function Workspace({
         );
     }
 
-    function handleCloseFile() {
-        if (hasUnsavedChanges) {
+    function handleCloseFile(
+        fileId: string,
+    ) {
+        const file =
+            openFiles.find(
+                (item) =>
+                    item.id ===
+                    fileId,
+            );
+
+        if (!file) {
+            return;
+        }
+
+        if (
+            file.content !==
+            file.savedContent
+        ) {
             const shouldClose =
                 window.confirm(
-                    "You have unsaved changes. Are you sure you want to close this file?",
+                    `"${file.name}" has unsaved changes. Are you sure you want to close it?`,
                 );
 
             if (!shouldClose) {
@@ -600,13 +829,35 @@ export default function Workspace({
             }
         }
 
-        setSelectedFileId(
-            null,
+        const index =
+            openFiles.findIndex(
+                (item) =>
+                    item.id ===
+                    fileId,
+            );
+
+        const nextFile =
+            openFiles[index + 1] ??
+            openFiles[index - 1] ??
+            null;
+
+        setOpenFiles(
+            (current) =>
+                current.filter(
+                    (item) =>
+                        item.id !==
+                        fileId,
+                ),
         );
 
-        setSelectedFolderId(
-            null,
-        );
+        if (
+            activeFileId === fileId
+        ) {
+            setActiveFileId(
+                nextFile?.id ??
+                null,
+            );
+        }
     }
 
     function getCreationParentId(): string | null {
@@ -617,20 +868,20 @@ export default function Workspace({
         }
 
         if (
-            selectedFileId
+            activeFileId
         ) {
-            const selectedFileForCreation =
+            const activeFileForCreation =
                 files.find(
                     (file) =>
                         file.id ===
-                        selectedFileId,
+                        activeFileId,
                 );
 
             if (
-                selectedFileForCreation
+                activeFileForCreation
             ) {
                 return (
-                    selectedFileForCreation.parentId ??
+                    activeFileForCreation.parentId ??
                     null
                 );
             }
@@ -655,9 +906,7 @@ export default function Workspace({
             resolvedParentId,
         );
 
-        setNewItemType(
-            type,
-        );
+        setNewItemType(type);
 
         setNewItemName("");
 
@@ -674,9 +923,7 @@ export default function Workspace({
             return;
         }
 
-        setNewItemType(
-            null,
-        );
+        setNewItemType(null);
 
         setNewItemName("");
 
@@ -732,6 +979,9 @@ export default function Workspace({
 
         setCreateError(null);
 
+        /*
+         * CREATE FILE
+         */
         if (
             newItemType ===
             "file"
@@ -759,10 +1009,13 @@ export default function Workspace({
                             null,
                         );
 
-                        setSelectedFileId(
-                            response
-                                .file
-                                .id,
+                        /*
+                         * Opening a newly created file
+                         * is handled by the normal active
+                         * file/query flow.
+                         */
+                        setActiveFileId(
+                            response.file.id,
                         );
 
                         setSelectedFolderId(
@@ -816,6 +1069,9 @@ export default function Workspace({
             return;
         }
 
+        /*
+         * CREATE FOLDER
+         */
         createFolderMutation.mutate(
             {
                 projectId,
@@ -839,13 +1095,7 @@ export default function Workspace({
                     );
 
                     setSelectedFolderId(
-                        response
-                            .file
-                            .id,
-                    );
-
-                    setSelectedFileId(
-                        null,
+                        response.file.id,
                     );
 
                     setExpandedFolders(
@@ -907,7 +1157,8 @@ export default function Workspace({
         event.stopPropagation();
 
         const parentId =
-            file.type === "folder"
+            file.type ===
+                "folder"
                 ? file.id
                 : file.parentId;
 
@@ -918,12 +1169,8 @@ export default function Workspace({
             setSelectedFolderId(
                 file.id,
             );
-
-            setSelectedFileId(
-                null,
-            );
         } else {
-            setSelectedFileId(
+            setActiveFileId(
                 file.id,
             );
 
@@ -950,10 +1197,6 @@ export default function Workspace({
             null,
         );
 
-        setSelectedFileId(
-            null,
-        );
-
         setContextMenu({
             x: event.clientX,
             y: event.clientY,
@@ -965,38 +1208,56 @@ export default function Workspace({
         fileId: string,
         parentId: string | null,
     ) {
-        const file = files.find(
-            (item) => item.id === fileId,
-        );
+        const file =
+            files.find(
+                (item) =>
+                    item.id ===
+                    fileId,
+            );
 
         if (!file) {
             return;
         }
 
-        // Already in this location.
+        /*
+         * Already in this location.
+         */
         if (
-            file.parentId === parentId
+            file.parentId ===
+            parentId
         ) {
             return;
         }
 
-        // Prevent moving a folder into itself.
-        if (file.id === parentId) {
+        /*
+         * Prevent moving a folder into itself.
+         */
+        if (
+            file.id ===
+            parentId
+        ) {
             return;
         }
 
-        // Prevent moving a folder into one of its descendants.
+        /*
+         * Prevent moving a folder into one
+         * of its descendants.
+         */
         if (
-            file.type === "folder" &&
+            file.type ===
+            "folder" &&
             parentId
         ) {
             let currentFile =
                 files.find(
                     (item) =>
-                        item.id === parentId,
+                        item.id ===
+                        parentId,
                 );
 
-            while (currentFile?.parentId) {
+            while (
+                currentFile?.parentId
+            ) {
                 if (
                     currentFile.parentId ===
                     file.id
@@ -1008,11 +1269,12 @@ export default function Workspace({
                     return;
                 }
 
-                currentFile = files.find(
-                    (item) =>
-                        item.id ===
-                        currentFile?.parentId,
-                );
+                currentFile =
+                    files.find(
+                        (item) =>
+                            item.id ===
+                            currentFile?.parentId,
+                    );
             }
         }
 
@@ -1023,9 +1285,12 @@ export default function Workspace({
                 parentId,
             },
             {
-                onError: (error: any) => {
+                onError: (
+                    error: any,
+                ) => {
                     if (
-                        error?.response?.status ===
+                        error?.response
+                            ?.status ===
                         409
                     ) {
                         window.alert(
@@ -1043,6 +1308,9 @@ export default function Workspace({
         );
     }
 
+    /*
+     * Ctrl+S / Cmd+S
+     */
     useEffect(() => {
         function handleKeyDown(
             event: KeyboardEvent,
@@ -1071,9 +1339,8 @@ export default function Workspace({
             );
         };
     }, [
-        selectedFileId,
-        editorContent,
-        hasUnsavedChanges,
+        activeFileId,
+        openFiles,
         updateFileMutation.isPending,
     ]);
 
@@ -1172,7 +1439,7 @@ export default function Workspace({
                             expandedFolders
                         }
                         selectedFileId={
-                            selectedFileId
+                            activeFileId
                         }
                         selectedFolderId={
                             selectedFolderId
@@ -1210,37 +1477,82 @@ export default function Workspace({
                 {/* Main Editor Area */}
                 <section className="flex min-w-0 flex-1 flex-col">
                     {/* Tabs */}
-                    <div className="flex h-10 shrink-0 items-center border-b border-zinc-800 bg-zinc-900/30">
-                        <div className="flex h-full items-center border-r border-zinc-800 bg-zinc-950 px-4">
-                            <span className="text-xs text-zinc-300">
-                                {hasUnsavedChanges && (
-                                    <span className="mr-1 text-zinc-400">
-                                        ●
+                    <div className="flex h-10 shrink-0 items-center overflow-x-auto border-b border-zinc-800 bg-zinc-900/30">
+                        {openFiles.length ===
+                            0 && (
+                                <div className="flex h-full items-center border-r border-zinc-800 bg-zinc-950 px-4">
+                                    <span className="text-xs text-zinc-500">
+                                        Welcome
                                     </span>
-                                )}
-
-                                {selectedFile?.name ??
-                                    "Welcome"}
-                            </span>
-
-                            {selectedFile && (
-                                <button
-                                    type="button"
-                                    className="ml-3 text-zinc-600 transition hover:text-zinc-300"
-                                    aria-label="Close tab"
-                                    onClick={
-                                        handleCloseFile
-                                    }
-                                >
-                                    ×
-                                </button>
+                                </div>
                             )}
-                        </div>
+
+                        {openFiles.map(
+                            (file) => {
+                                const isActive =
+                                    file.id ===
+                                    activeFileId;
+
+                                const isDirty =
+                                    file.content !==
+                                    file.savedContent;
+
+                                return (
+                                    <div
+                                        key={
+                                            file.id
+                                        }
+                                        className={`group flex h-full shrink-0 items-center border-r border-zinc-800 ${isActive
+                                                ? "bg-zinc-950"
+                                                : "bg-zinc-900/40"
+                                            }`}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setActiveFileId(
+                                                    file.id,
+                                                )
+                                            }
+                                            className={`flex h-full items-center px-3 text-xs transition ${isActive
+                                                    ? "text-zinc-200"
+                                                    : "text-zinc-500 hover:text-zinc-300"
+                                                }`}
+                                        >
+                                            {isDirty && (
+                                                <span className="mr-2 text-zinc-400">
+                                                    ●
+                                                </span>
+                                            )}
+
+                                            <span className="max-w-40 truncate">
+                                                {
+                                                    file.name
+                                                }
+                                            </span>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            className="mr-2 flex h-5 w-5 items-center justify-center rounded text-zinc-600 opacity-0 transition hover:bg-zinc-800 hover:text-zinc-200 group-hover:opacity-100"
+                                            aria-label={`Close ${file.name}`}
+                                            onClick={() =>
+                                                handleCloseFile(
+                                                    file.id,
+                                                )
+                                            }
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                );
+                            },
+                        )}
                     </div>
 
                     {/* Editor */}
                     <div className="min-h-0 flex-1 overflow-auto bg-zinc-950">
-                        {!selectedFileId && (
+                        {!activeFileId && (
                             <div className="flex h-full items-center justify-center">
                                 <div className="text-center">
                                     <h1 className="text-sm font-medium text-zinc-400">
@@ -1256,29 +1568,31 @@ export default function Workspace({
                             </div>
                         )}
 
-                        {selectedFileQuery.isLoading && (
-                            <div className="flex h-full items-center justify-center">
-                                <p className="text-xs text-zinc-600">
-                                    Loading file...
-                                </p>
-                            </div>
-                        )}
+                        {activeFileId &&
+                            selectedFileQuery.isLoading && (
+                                <div className="flex h-full items-center justify-center">
+                                    <p className="text-xs text-zinc-600">
+                                        Loading file...
+                                    </p>
+                                </div>
+                            )}
 
-                        {selectedFileQuery.isError && (
-                            <div className="flex h-full items-center justify-center">
-                                <p className="text-xs text-red-400">
-                                    Failed to load file
-                                </p>
-                            </div>
-                        )}
+                        {activeFileId &&
+                            selectedFileQuery.isError && (
+                                <div className="flex h-full items-center justify-center">
+                                    <p className="text-xs text-red-400">
+                                        Failed to load file
+                                    </p>
+                                </div>
+                            )}
 
-                        {selectedFile && (
+                        {activeOpenFile && (
                             <CodeEditor
                                 value={
-                                    editorContent
+                                    activeOpenFile.content
                                 }
                                 language={getLanguageFromFileName(
-                                    selectedFile.name,
+                                    activeOpenFile.name,
                                 )}
                                 onChange={(
                                     value,
@@ -1287,14 +1601,29 @@ export default function Workspace({
                                         value ??
                                         "";
 
-                                    setEditorContent(
-                                        nextValue,
-                                    );
+                                    if (
+                                        !activeFileId
+                                    ) {
+                                        return;
+                                    }
 
-                                    setHasUnsavedChanges(
-                                        nextValue !==
-                                        (selectedFile.content ??
-                                            ""),
+                                    setOpenFiles(
+                                        (
+                                            current,
+                                        ) =>
+                                            current.map(
+                                                (
+                                                    file,
+                                                ) =>
+                                                    file.id ===
+                                                        activeFileId
+                                                        ? {
+                                                            ...file,
+                                                            content:
+                                                                nextValue,
+                                                        }
+                                                        : file,
+                                            ),
                                     );
                                 }}
                             />
@@ -1322,14 +1651,16 @@ export default function Workspace({
             {/* Status Bar */}
             <footer className="flex h-6 shrink-0 items-center justify-between border-t border-zinc-800 bg-zinc-900/70 px-3 text-[10px] text-zinc-500">
                 <div className="flex items-center gap-4">
-                    <span>main</span>
+                    <span>
+                        main
+                    </span>
 
                     <span>
                         {updateFileMutation.isPending
                             ? "Saving..."
                             : deleteFileMutation.isPending
                                 ? "Deleting..."
-                                : hasUnsavedChanges
+                                : activeFileHasUnsavedChanges
                                     ? "Unsaved changes"
                                     : "Ready"}
                     </span>
@@ -1340,11 +1671,13 @@ export default function Workspace({
                         Ln 1, Col 1
                     </span>
 
-                    <span>UTF-8</span>
+                    <span>
+                        UTF-8
+                    </span>
 
                     <span>
                         {getLanguageFromFileName(
-                            selectedFile?.name ??
+                            activeOpenFile?.name ??
                             "",
                         )}
                     </span>
@@ -1360,10 +1693,14 @@ export default function Workspace({
                         left: contextMenu.x,
                         top: contextMenu.y,
                     }}
-                    onMouseDown={(event) =>
+                    onMouseDown={(
+                        event,
+                    ) =>
                         event.stopPropagation()
                     }
-                    onClick={(event) =>
+                    onClick={(
+                        event,
+                    ) =>
                         event.stopPropagation()
                     }
                 >
@@ -1392,16 +1729,23 @@ export default function Workspace({
                             <button
                                 type="button"
                                 onClick={() => {
-                                    if (!contextMenu?.fileId) {
+                                    if (
+                                        !contextMenu?.fileId
+                                    ) {
                                         return;
                                     }
 
-                                    setDialog({
-                                        type: "move",
-                                        fileId: contextMenu.fileId,
-                                    });
+                                    setDialog(
+                                        {
+                                            type: "move",
+                                            fileId:
+                                                contextMenu.fileId,
+                                        },
+                                    );
 
-                                    setContextMenu(null);
+                                    setContextMenu(
+                                        null,
+                                    );
                                 }}
                                 disabled={
                                     updateFileMutation.isPending ||
@@ -1435,6 +1779,7 @@ export default function Workspace({
                             </button>
                         </>
                     )}
+
                     <button
                         type="button"
                         onClick={() =>
@@ -1491,37 +1836,63 @@ export default function Workspace({
                 />
             )}
 
-            {/*Confirm delete or rename dialog */}
-            {dialog && (() => {
-                const file = files.find(
-                    (item) => item.id === dialog.fileId,
-                );
+            {/* Rename / Move / Delete Dialog */}
+            {dialog &&
+                (() => {
+                    const file =
+                        files.find(
+                            (item) =>
+                                item.id ===
+                                dialog.fileId,
+                        );
 
-                if (!file) {
-                    return null;
-                }
+                    if (!file) {
+                        return null;
+                    }
 
-                return (
-                    <WorkspaceDialog
-                        type={dialog.type}
-                        itemName={file.name}
-                        itemType={file.type}
-                        itemId={file.id}
-                        currentParentId={file.parentId}
-                        folders={files.filter(
-                            (item) => item.type === "folder",
-                        )}
-                        onCancel={() => setDialog(null)}
-                        onConfirm={handleDialogConfirm}
-                        isLoading={
-                            dialog.type === "rename" ||
-                                dialog.type === "move"
-                                ? updateFileMutation.isPending
-                                : deleteFileMutation.isPending
-                        }
-                    />
-                );
-            })()}
+                    return (
+                        <WorkspaceDialog
+                            type={
+                                dialog.type
+                            }
+                            itemName={
+                                file.name
+                            }
+                            itemType={
+                                file.type
+                            }
+                            itemId={
+                                file.id
+                            }
+                            currentParentId={
+                                file.parentId
+                            }
+                            folders={files.filter(
+                                (
+                                    item,
+                                ) =>
+                                    item.type ===
+                                    "folder",
+                            )}
+                            onCancel={() =>
+                                setDialog(
+                                    null,
+                                )
+                            }
+                            onConfirm={
+                                handleDialogConfirm
+                            }
+                            isLoading={
+                                dialog.type ===
+                                    "rename" ||
+                                    dialog.type ===
+                                    "move"
+                                    ? updateFileMutation.isPending
+                                    : deleteFileMutation.isPending
+                            }
+                        />
+                    );
+                })()}
         </main>
     );
 }
