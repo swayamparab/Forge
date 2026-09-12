@@ -1,5 +1,6 @@
 "use client";
 
+import type { DragEvent } from "react";
 import type { ProjectFile } from "@/services/file";
 
 interface FileTreeItemProps {
@@ -15,6 +16,10 @@ interface FileTreeItemProps {
         event: React.MouseEvent,
         file: ProjectFile,
     ) => void;
+    onMoveFile: (
+        fileId: string,
+        parentId: string | null,
+    ) => void;
 }
 
 export default function FileTreeItem({
@@ -27,6 +32,7 @@ export default function FileTreeItem({
     onSelectFile,
     onSelectFolder,
     onContextMenu,
+    onMoveFile,
 }: FileTreeItemProps) {
     const isFolder =
         file.type === "folder";
@@ -50,6 +56,58 @@ export default function FileTreeItem({
         }
     }
 
+    function handleDragStart(
+        event: DragEvent<HTMLButtonElement>,
+    ) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData(
+            "text/plain",
+            file.id,
+        );
+    }
+
+    function handleDragOver(
+        event: DragEvent<HTMLButtonElement>,
+    ) {
+        if (!isFolder) {
+            return;
+        }
+
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+    }
+
+    function handleDrop(
+        event: DragEvent<HTMLButtonElement>,
+    ) {
+        if (!isFolder) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        const draggedFileId =
+            event.dataTransfer.getData(
+                "text/plain",
+            );
+
+        if (!draggedFileId) {
+            return;
+        }
+
+        if (
+            draggedFileId === file.id
+        ) {
+            return;
+        }
+
+        onMoveFile(
+            draggedFileId,
+            file.id,
+        );
+    }
+
     return (
         <div>
             <div
@@ -63,6 +121,16 @@ export default function FileTreeItem({
             >
                 <button
                     type="button"
+                    draggable
+                    onDragStart={
+                        handleDragStart
+                    }
+                    onDragOver={
+                        handleDragOver
+                    }
+                    onDrop={
+                        handleDrop
+                    }
                     onClick={handleClick}
                     className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs transition ${isSelected
                             ? "bg-zinc-800 text-zinc-100"
@@ -127,6 +195,9 @@ export default function FileTreeItem({
                                     }
                                     onContextMenu={
                                         onContextMenu
+                                    }
+                                    onMoveFile={
+                                        onMoveFile
                                     }
                                 />
                             ),

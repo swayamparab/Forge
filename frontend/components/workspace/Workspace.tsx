@@ -102,7 +102,7 @@ export default function Workspace({
     } | null>(null);
 
     const [dialog, setDialog] = useState<{
-        type: "rename" | "delete";
+        type: "rename" | "delete" | "move";
         fileId: string;
     } | null>(null);
 
@@ -465,6 +465,48 @@ export default function Workspace({
 
                         window.alert(
                             "Failed to rename item.",
+                        );
+                    },
+                },
+            );
+
+            return;
+        }
+
+        if (dialog.type === "move") {
+            updateFileMutation.mutate(
+                {
+                    projectId,
+                    fileId: file.id,
+                    parentId: value || null,
+                },
+                {
+                    onSuccess: () => {
+                        setDialog(null);
+                    },
+                    onError: (error: any) => {
+                        if (
+                            error?.response?.status ===
+                            409
+                        ) {
+                            window.alert(
+                                "A file or folder with this name already exists in the destination.",
+                            );
+                            return;
+                        }
+
+                        if (
+                            error?.response?.status ===
+                            400
+                        ) {
+                            window.alert(
+                                "This item cannot be moved to that folder.",
+                            );
+                            return;
+                        }
+
+                        window.alert(
+                            "Failed to move item.",
                         );
                     },
                 },
@@ -919,6 +961,88 @@ export default function Workspace({
         });
     }
 
+    function handleMoveFile(
+        fileId: string,
+        parentId: string | null,
+    ) {
+        const file = files.find(
+            (item) => item.id === fileId,
+        );
+
+        if (!file) {
+            return;
+        }
+
+        // Already in this location.
+        if (
+            file.parentId === parentId
+        ) {
+            return;
+        }
+
+        // Prevent moving a folder into itself.
+        if (file.id === parentId) {
+            return;
+        }
+
+        // Prevent moving a folder into one of its descendants.
+        if (
+            file.type === "folder" &&
+            parentId
+        ) {
+            let currentFile =
+                files.find(
+                    (item) =>
+                        item.id === parentId,
+                );
+
+            while (currentFile?.parentId) {
+                if (
+                    currentFile.parentId ===
+                    file.id
+                ) {
+                    window.alert(
+                        "A folder cannot be moved into one of its own subfolders.",
+                    );
+
+                    return;
+                }
+
+                currentFile = files.find(
+                    (item) =>
+                        item.id ===
+                        currentFile?.parentId,
+                );
+            }
+        }
+
+        updateFileMutation.mutate(
+            {
+                projectId,
+                fileId,
+                parentId,
+            },
+            {
+                onError: (error: any) => {
+                    if (
+                        error?.response?.status ===
+                        409
+                    ) {
+                        window.alert(
+                            "A file or folder with this name already exists in the destination.",
+                        );
+
+                        return;
+                    }
+
+                    window.alert(
+                        "Failed to move item.",
+                    );
+                },
+            },
+        );
+    }
+
     useEffect(() => {
         function handleKeyDown(
             event: KeyboardEvent,
@@ -1076,6 +1200,9 @@ export default function Workspace({
                         }
                         onRootContextMenu={
                             handleRootContextMenu
+                        }
+                        onMoveFile={
+                            handleMoveFile
                         }
                     />
                 </aside>
@@ -1264,6 +1391,33 @@ export default function Workspace({
 
                             <button
                                 type="button"
+                                onClick={() => {
+                                    if (!contextMenu?.fileId) {
+                                        return;
+                                    }
+
+                                    setDialog({
+                                        type: "move",
+                                        fileId: contextMenu.fileId,
+                                    });
+
+                                    setContextMenu(null);
+                                }}
+                                disabled={
+                                    updateFileMutation.isPending ||
+                                    deleteFileMutation.isPending
+                                }
+                                className="flex w-full items-center rounded-md px-3 py-2 text-left text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                <span className="mr-2">
+                                    ↗
+                                </span>
+
+                                Move to...
+                            </button>
+
+                            <button
+                                type="button"
                                 onClick={
                                     handleDelete
                                 }
@@ -1352,10 +1506,16 @@ export default function Workspace({
                         type={dialog.type}
                         itemName={file.name}
                         itemType={file.type}
+                        itemId={file.id}
+                        currentParentId={file.parentId}
+                        folders={files.filter(
+                            (item) => item.type === "folder",
+                        )}
                         onCancel={() => setDialog(null)}
                         onConfirm={handleDialogConfirm}
                         isLoading={
-                            dialog.type === "rename"
+                            dialog.type === "rename" ||
+                                dialog.type === "move"
                                 ? updateFileMutation.isPending
                                 : deleteFileMutation.isPending
                         }

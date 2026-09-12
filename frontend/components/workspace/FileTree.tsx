@@ -22,6 +22,10 @@ interface FileTreeProps {
     onRootContextMenu: (
         event: React.MouseEvent,
     ) => void;
+    onMoveFile: (
+        fileId: string,
+        parentId: string | null,
+    ) => void;
 }
 
 export default function FileTree({
@@ -38,9 +42,34 @@ export default function FileTree({
     onClearSelection,
     onContextMenu,
     onRootContextMenu,
+    onMoveFile
 }: FileTreeProps) {
-    const rootFiles =
-        filesByParent.get(null) ?? [];
+
+    const rootFiles = filesByParent.get(null) ?? [];
+
+    function handleRootDragOver(
+        event: React.DragEvent<HTMLDivElement>,
+    ) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+    }
+
+    function handleRootDrop(
+        event: React.DragEvent<HTMLDivElement>,
+    ) {
+        event.preventDefault();
+
+        const fileId =
+            event.dataTransfer.getData(
+                "text/plain",
+            );
+
+        if (!fileId) {
+            return;
+        }
+
+        onMoveFile(fileId, null);
+    }
 
     return (
         <div
@@ -122,6 +151,9 @@ export default function FileTree({
                                     onContextMenu={
                                         onContextMenu
                                     }
+                                    onMoveFile={
+                                        onMoveFile
+                                    }
                                 />
                             ),
                         )}
@@ -131,6 +163,8 @@ export default function FileTree({
             {/* Root background */}
             <div
                 className="min-h-32"
+                onDragOver={handleRootDragOver}
+                onDrop={handleRootDrop}
                 onClick={(event) => {
                     event.stopPropagation();
                     onClearSelection();
