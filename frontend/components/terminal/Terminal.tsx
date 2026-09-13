@@ -70,21 +70,26 @@ export default function Terminal({
             "\x1b[90mConnecting to MeshIDE terminal...\x1b[0m",
         );
 
-        const protocol =
-            window.location.protocol ===
-                "https:"
-                ? "wss"
-                : "ws";
+        const backendUrl =
+            process.env.NEXT_PUBLIC_API_URL;
 
-        const host =
-            window.location.hostname ===
-                "localhost"
-                ? "localhost:5000"
-                : window.location.host;
+        if (!backendUrl) {
+            terminal.writeln(
+                "\x1b[31mTerminal backend URL is not configured.\x1b[0m",
+            );
+
+            return;
+        }
+
+        const websocketUrl =
+            backendUrl
+                .replace(/^http:\/\//, "ws://")
+                .replace(/^https:\/\//, "wss://")
+                .replace(/\/$/, "");
 
         const socket =
             new WebSocket(
-                `${protocol}://${host}/terminal`,
+                `${websocketUrl}/terminal`,
             );
 
         socketRef.current =
