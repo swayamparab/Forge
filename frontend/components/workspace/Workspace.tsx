@@ -30,6 +30,7 @@ import {
 import FileTree from "./FileTree";
 import CreateItemDialog from "./CreateItemDialog";
 import WorkspaceDialog from "./WorkspaceDialog";
+import Terminal from "@/components/terminal/Terminal";
 
 interface WorkspaceProps {
     projectId: string;
@@ -108,8 +109,14 @@ export default function Workspace({
         fileId: string;
     } | null>(null);
 
-    const filesQuery =
-        useProjectFiles(projectId);
+    const [terminalOpen, setTerminalOpen] = useState(false);
+
+    const [runCommand, setRunCommand] = useState<{
+        fileName: string;
+        content: string;
+    } | null>(null);
+
+    const filesQuery = useProjectFiles(projectId);
 
     const selectedFileQuery =
         useFile(
@@ -1477,21 +1484,20 @@ export default function Workspace({
                 {/* Main Editor Area */}
                 <section className="flex min-w-0 flex-1 flex-col">
                     {/* Tabs */}
-                    <div className="flex h-10 shrink-0 items-center overflow-x-auto border-b border-zinc-800 bg-zinc-900/30">
-                        {openFiles.length ===
-                            0 && (
-                                <div className="flex h-full items-center border-r border-zinc-800 bg-zinc-950 px-4">
+                    <div className="relative h-10 shrink-0 border-b border-zinc-800 bg-zinc-900/30">
+                        {/* Tabs */}
+                        <div className="flex h-full items-center overflow-x-auto pr-12">
+                            {openFiles.length === 0 && (
+                                <div className="flex h-full shrink-0 items-center border-r border-zinc-800 bg-zinc-950 px-4">
                                     <span className="text-xs text-zinc-500">
                                         Welcome
                                     </span>
                                 </div>
                             )}
 
-                        {openFiles.map(
-                            (file) => {
+                            {openFiles.map((file) => {
                                 const isActive =
-                                    file.id ===
-                                    activeFileId;
+                                    file.id === activeFileId;
 
                                 const isDirty =
                                     file.content !==
@@ -1499,12 +1505,10 @@ export default function Workspace({
 
                                 return (
                                     <div
-                                        key={
-                                            file.id
-                                        }
+                                        key={file.id}
                                         className={`group flex h-full shrink-0 items-center border-r border-zinc-800 ${isActive
-                                                ? "bg-zinc-950"
-                                                : "bg-zinc-900/40"
+                                            ? "bg-zinc-950"
+                                            : "bg-zinc-900/40"
                                             }`}
                                     >
                                         <button
@@ -1515,8 +1519,8 @@ export default function Workspace({
                                                 )
                                             }
                                             className={`flex h-full items-center px-3 text-xs transition ${isActive
-                                                    ? "text-zinc-200"
-                                                    : "text-zinc-500 hover:text-zinc-300"
+                                                ? "text-zinc-200"
+                                                : "text-zinc-500 hover:text-zinc-300"
                                                 }`}
                                         >
                                             {isDirty && (
@@ -1526,9 +1530,7 @@ export default function Workspace({
                                             )}
 
                                             <span className="max-w-40 truncate">
-                                                {
-                                                    file.name
-                                                }
+                                                {file.name}
                                             </span>
                                         </button>
 
@@ -1546,8 +1548,34 @@ export default function Workspace({
                                         </button>
                                     </div>
                                 );
-                            },
-                        )}
+                            })}
+                        </div>
+
+                        {/* Fixed Run Button */}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (!activeOpenFile) {
+                                    return;
+                                }
+
+                                setRunCommand({
+                                    fileName: activeOpenFile.name,
+                                    content: activeOpenFile.content,
+                                });
+
+                                setTerminalOpen(true);
+                            }}
+                            disabled={!activeOpenFile}
+                            title={
+                                activeOpenFile
+                                    ? `Run ${activeOpenFile.name}`
+                                    : "Select a file to run"
+                            }
+                            className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-[11px] text-zinc-400 shadow-sm transition hover:border-zinc-700 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
+                        >
+                            ▶
+                        </button>
                     </div>
 
                     {/* Editor */}
@@ -1629,6 +1657,18 @@ export default function Workspace({
                             />
                         )}
                     </div>
+
+                    {/* Terminal */}
+                    {terminalOpen && (
+                        <div className="h-64 shrink-0 border-t border-zinc-800 bg-zinc-950">
+                            <Terminal
+                                onClose={() =>
+                                    setTerminalOpen(false)
+                                }
+                                runCommand={runCommand}
+                            />
+                        </div>
+                    )}
                 </section>
 
                 {/* Right Panel */}

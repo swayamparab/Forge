@@ -1,7 +1,15 @@
-import { and, eq } from "drizzle-orm";
+import {
+    and,
+    eq,
+    isNull,
+    ne
+} from "drizzle-orm";
 
 import { db } from "../../db/index.js";
-import { projectFiles, projects } from "../../db/schema/index.js";
+import {
+    projectFiles,
+    projects,
+} from "../../db/schema/index.js";
 
 interface CreateFileInput {
     name: string;
@@ -49,7 +57,10 @@ async function verifyParentFolder(
         .where(
             and(
                 eq(projectFiles.id, parentId),
-                eq(projectFiles.projectId, projectId),
+                eq(
+                    projectFiles.projectId,
+                    projectId,
+                ),
             ),
         )
         .limit(1);
@@ -70,7 +81,8 @@ async function isDescendant(
     fileId: string,
     possibleParentId: string,
 ) {
-    let currentId: string | null = possibleParentId;
+    let currentId: string | null =
+        possibleParentId;
 
     while (currentId) {
         if (currentId === fileId) {
@@ -79,13 +91,20 @@ async function isDescendant(
 
         const [current] = await db
             .select({
-                parentId: projectFiles.parentId,
+                parentId:
+                    projectFiles.parentId,
             })
             .from(projectFiles)
             .where(
                 and(
-                    eq(projectFiles.id, currentId),
-                    eq(projectFiles.projectId, projectId),
+                    eq(
+                        projectFiles.id,
+                        currentId,
+                    ),
+                    eq(
+                        projectFiles.projectId,
+                        projectId,
+                    ),
                 ),
             )
             .limit(1);
@@ -100,24 +119,135 @@ async function isDescendant(
     return false;
 }
 
+/*
+ * Checks whether another file/folder with the
+ * same name already exists in the same location.
+ *
+ * Root level:
+ *     parentId IS NULL
+ *
+ * Nested:
+ *     parentId = folderId
+ */
+async function checkDuplicateName(
+    projectId: string,
+    parentId: string | null,
+    name: string,
+    excludeFileId?: string,
+) {
+    const conditions = [
+        eq(
+            projectFiles.projectId,
+            projectId,
+        ),
+        eq(
+            projectFiles.name,
+            name,
+        ),
+    ];
+
+    if (parentId === null) {
+        conditions.push(
+            isNull(
+                projectFiles.parentId,
+            ),
+        );
+    } else {
+        conditions.push(
+            eq(
+                projectFiles.parentId,
+                parentId,
+            ),
+        );
+    }
+
+    if (excludeFileId) {
+        conditions.push(
+            ne(
+                projectFiles.id,
+                excludeFileId,
+            ),
+        );
+    }
+
+    const query = db
+        .select({
+            id: projectFiles.id,
+        })
+        .from(projectFiles)
+        .where(
+            and(...conditions),
+        );
+
+    const results =
+        await query.limit(1);
+
+    if (
+        results.length > 0 &&
+        results[0]
+    ) {
+        if (
+            excludeFileId &&
+            results[0].id ===
+            excludeFileId
+        ) {
+            return false;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
 export async function createFile(
     projectId: string,
     userId: string,
     input: CreateFileInput,
 ) {
-    const project = await verifyProjectOwnership(
-        projectId,
-        userId,
-    );
+    const project =
+        await verifyProjectOwnership(
+            projectId,
+            userId,
+        );
 
     if (!project) {
-        throw new Error("PROJECT_NOT_FOUND");
+        throw new Error(
+            "PROJECT_NOT_FOUND",
+        );
     }
 
-    if (input.parentId) {
+    const parentId =
+        input.parentId ?? null;
+
+    if (parentId !== null) {
         await verifyParentFolder(
             projectId,
-            input.parentId,
+            parentId,
+        );
+    }
+
+    /*
+     * Explicit duplicate validation.
+     *
+     * This works for both:
+     *
+     * root:
+     * parentId = NULL
+     *
+     * folder:
+     * parentId = folder ID
+     */
+    const duplicate =
+        await checkDuplicateName(
+            projectId,
+            parentId,
+            input.name,
+        );
+
+    if (duplicate) {
+        throw new Error(
+            "FILE_NAME_EXISTS",
         );
     }
 
@@ -127,39 +257,55 @@ export async function createFile(
             : null;
 
     try {
-        const [file] = await db
-            .insert(projectFiles)
-            .values({
-                projectId,
-                parentId: input.parentId ?? null,
-                name: input.name,
-                type: input.type,
-                content,
-            })
-            .returning({
-                id: projectFiles.id,
-                projectId: projectFiles.projectId,
-                parentId: projectFiles.parentId,
-                name: projectFiles.name,
-                type: projectFiles.type,
-                content: projectFiles.content,
-                createdAt: projectFiles.createdAt,
-                updatedAt: projectFiles.updatedAt,
-            });
+        const [file] =
+            await db
+                .insert(projectFiles)
+                .values({
+                    projectId,
+                    parentId,
+                    name: input.name,
+                    type: input.type,
+                    content,
+                })
+                .returning({
+                    id: projectFiles.id,
+                    projectId:
+                        projectFiles.projectId,
+                    parentId:
+                        projectFiles.parentId,
+                    name:
+                        projectFiles.name,
+                    type:
+                        projectFiles.type,
+                    content:
+                        projectFiles.content,
+                    createdAt:
+                        projectFiles.createdAt,
+                    updatedAt:
+                        projectFiles.updatedAt,
+                });
 
         if (!file) {
-            throw new Error("FILE_CREATION_FAILED");
+            throw new Error(
+                "FILE_CREATION_FAILED",
+            );
         }
 
         return file;
     } catch (error) {
+        /*
+         * Keep the database constraint as the
+         * final protection against race conditions.
+         */
         if (
             error instanceof Error &&
             error.message.includes(
                 "project_files_project_parent_name_unique",
             )
         ) {
-            throw new Error("FILE_NAME_EXISTS");
+            throw new Error(
+                "FILE_NAME_EXISTS",
+            );
         }
 
         throw error;
@@ -170,29 +316,42 @@ export async function getProjectFiles(
     projectId: string,
     userId: string,
 ) {
-    const project = await verifyProjectOwnership(
-        projectId,
-        userId,
-    );
+    const project =
+        await verifyProjectOwnership(
+            projectId,
+            userId,
+        );
 
     if (!project) {
-        throw new Error("PROJECT_NOT_FOUND");
+        throw new Error(
+            "PROJECT_NOT_FOUND",
+        );
     }
 
     return db
         .select({
             id: projectFiles.id,
-            projectId: projectFiles.projectId,
-            parentId: projectFiles.parentId,
-            name: projectFiles.name,
-            type: projectFiles.type,
-            content: projectFiles.content,
-            createdAt: projectFiles.createdAt,
-            updatedAt: projectFiles.updatedAt,
+            projectId:
+                projectFiles.projectId,
+            parentId:
+                projectFiles.parentId,
+            name:
+                projectFiles.name,
+            type:
+                projectFiles.type,
+            content:
+                projectFiles.content,
+            createdAt:
+                projectFiles.createdAt,
+            updatedAt:
+                projectFiles.updatedAt,
         })
         .from(projectFiles)
         .where(
-            eq(projectFiles.projectId, projectId),
+            eq(
+                projectFiles.projectId,
+                projectId,
+            ),
         );
 }
 
@@ -201,34 +360,51 @@ export async function getFile(
     userId: string,
     fileId: string,
 ) {
-    const project = await verifyProjectOwnership(
-        projectId,
-        userId,
-    );
+    const project =
+        await verifyProjectOwnership(
+            projectId,
+            userId,
+        );
 
     if (!project) {
-        throw new Error("PROJECT_NOT_FOUND");
+        throw new Error(
+            "PROJECT_NOT_FOUND",
+        );
     }
 
-    const [file] = await db
-        .select({
-            id: projectFiles.id,
-            projectId: projectFiles.projectId,
-            parentId: projectFiles.parentId,
-            name: projectFiles.name,
-            type: projectFiles.type,
-            content: projectFiles.content,
-            createdAt: projectFiles.createdAt,
-            updatedAt: projectFiles.updatedAt,
-        })
-        .from(projectFiles)
-        .where(
-            and(
-                eq(projectFiles.id, fileId),
-                eq(projectFiles.projectId, projectId),
-            ),
-        )
-        .limit(1);
+    const [file] =
+        await db
+            .select({
+                id: projectFiles.id,
+                projectId:
+                    projectFiles.projectId,
+                parentId:
+                    projectFiles.parentId,
+                name:
+                    projectFiles.name,
+                type:
+                    projectFiles.type,
+                content:
+                    projectFiles.content,
+                createdAt:
+                    projectFiles.createdAt,
+                updatedAt:
+                    projectFiles.updatedAt,
+            })
+            .from(projectFiles)
+            .where(
+                and(
+                    eq(
+                        projectFiles.id,
+                        fileId,
+                    ),
+                    eq(
+                        projectFiles.projectId,
+                        projectId,
+                    ),
+                ),
+            )
+            .limit(1);
 
     return file;
 }
@@ -239,52 +415,129 @@ export async function updateFile(
     fileId: string,
     input: UpdateFileInput,
 ) {
-    const project = await verifyProjectOwnership(
-        projectId,
-        userId,
-    );
+    const project =
+        await verifyProjectOwnership(
+            projectId,
+            userId,
+        );
 
     if (!project) {
-        throw new Error("PROJECT_NOT_FOUND");
+        throw new Error(
+            "PROJECT_NOT_FOUND",
+        );
     }
 
-    const [existingFile] = await db
-        .select({
-            id: projectFiles.id,
-            type: projectFiles.type,
-        })
-        .from(projectFiles)
-        .where(
-            and(
-                eq(projectFiles.id, fileId),
-                eq(projectFiles.projectId, projectId),
-            ),
-        )
-        .limit(1);
+    const [existingFile] =
+        await db
+            .select({
+                id: projectFiles.id,
+                name:
+                    projectFiles.name,
+                parentId:
+                    projectFiles.parentId,
+                type:
+                    projectFiles.type,
+            })
+            .from(projectFiles)
+            .where(
+                and(
+                    eq(
+                        projectFiles.id,
+                        fileId,
+                    ),
+                    eq(
+                        projectFiles.projectId,
+                        projectId,
+                    ),
+                ),
+            )
+            .limit(1);
 
     if (!existingFile) {
-        throw new Error("FILE_NOT_FOUND");
+        throw new Error(
+            "FILE_NOT_FOUND",
+        );
     }
 
-    if (input.parentId) {
-        if (input.parentId === fileId) {
-            throw new Error("INVALID_PARENT");
+    const destinationParentId =
+        input.parentId !==
+            undefined
+            ? input.parentId
+            : existingFile.parentId;
+
+    if (
+        destinationParentId !==
+        null
+    ) {
+        if (
+            destinationParentId ===
+            fileId
+        ) {
+            throw new Error(
+                "INVALID_PARENT",
+            );
         }
 
         await verifyParentFolder(
             projectId,
-            input.parentId,
+            destinationParentId,
         );
 
         if (
-            existingFile.type === "folder" &&
+            existingFile.type ===
+            "folder" &&
             await isDescendant(
                 projectId,
                 fileId,
-                input.parentId,
+                destinationParentId,
             )
         ) {
-            throw new Error("INVALID_PARENT");
+            throw new Error(
+                "INVALID_PARENT",
+            );
+        }
+    }
+
+    const destinationName =
+        input.name !== undefined
+            ? input.name
+            : existingFile.name;
+
+    /*
+     * Check duplicate name when either:
+     *
+     * - the name changes
+     * - the parent changes
+     *
+     * We exclude the current file.
+     */
+    const nameChanged =
+        input.name !== undefined &&
+        input.name !==
+        existingFile.name;
+
+    const parentChanged =
+        input.parentId !==
+        undefined &&
+        input.parentId !==
+        existingFile.parentId;
+
+    if (
+        nameChanged ||
+        parentChanged
+    ) {
+        const duplicate =
+            await checkDuplicateName(
+                projectId,
+                destinationParentId,
+                destinationName,
+                fileId,
+            );
+
+        if (duplicate) {
+            throw new Error(
+                "FILE_NAME_EXISTS",
+            );
         }
     }
 
@@ -297,54 +550,94 @@ export async function updateFile(
         updatedAt: new Date(),
     };
 
-    if (input.name !== undefined) {
-        updateData.name = input.name;
+    if (
+        input.name !==
+        undefined
+    ) {
+        updateData.name =
+            input.name;
     }
 
-    if (existingFile.type === "file") {
-        if (input.content !== undefined) {
-            updateData.content = input.content;
+    if (
+        existingFile.type ===
+        "file"
+    ) {
+        if (
+            input.content !==
+            undefined
+        ) {
+            updateData.content =
+                input.content;
         }
     }
 
-    if (input.parentId !== undefined) {
-        updateData.parentId = input.parentId;
+    if (
+        input.parentId !==
+        undefined
+    ) {
+        updateData.parentId =
+            input.parentId;
     }
 
     try {
-        const [updatedFile] = await db
-            .update(projectFiles)
-            .set(updateData)
-            .where(
-                and(
-                    eq(projectFiles.id, fileId),
-                    eq(projectFiles.projectId, projectId),
-                ),
-            )
-            .returning({
-                id: projectFiles.id,
-                projectId: projectFiles.projectId,
-                parentId: projectFiles.parentId,
-                name: projectFiles.name,
-                type: projectFiles.type,
-                content: projectFiles.content,
-                createdAt: projectFiles.createdAt,
-                updatedAt: projectFiles.updatedAt,
-            });
+        const [updatedFile] =
+            await db
+                .update(
+                    projectFiles,
+                )
+                .set(updateData)
+                .where(
+                    and(
+                        eq(
+                            projectFiles.id,
+                            fileId,
+                        ),
+                        eq(
+                            projectFiles.projectId,
+                            projectId,
+                        ),
+                    ),
+                )
+                .returning({
+                    id:
+                        projectFiles.id,
+                    projectId:
+                        projectFiles.projectId,
+                    parentId:
+                        projectFiles.parentId,
+                    name:
+                        projectFiles.name,
+                    type:
+                        projectFiles.type,
+                    content:
+                        projectFiles.content,
+                    createdAt:
+                        projectFiles.createdAt,
+                    updatedAt:
+                        projectFiles.updatedAt,
+                });
 
         if (!updatedFile) {
-            throw new Error("FILE_UPDATE_FAILED");
+            throw new Error(
+                "FILE_UPDATE_FAILED",
+            );
         }
 
         return updatedFile;
     } catch (error) {
+        /*
+         * Database constraint remains the final
+         * protection against concurrent requests.
+         */
         if (
             error instanceof Error &&
             error.message.includes(
                 "project_files_project_parent_name_unique",
             )
         ) {
-            throw new Error("FILE_NAME_EXISTS");
+            throw new Error(
+                "FILE_NAME_EXISTS",
+            );
         }
 
         throw error;
@@ -356,58 +649,86 @@ export async function deleteFile(
     userId: string,
     fileId: string,
 ) {
-    const project = await verifyProjectOwnership(
-        projectId,
-        userId,
-    );
+    const project =
+        await verifyProjectOwnership(
+            projectId,
+            userId,
+        );
 
     if (!project) {
-        throw new Error("PROJECT_NOT_FOUND");
+        throw new Error(
+            "PROJECT_NOT_FOUND",
+        );
     }
 
-    const [file] = await db
-        .select({
-            id: projectFiles.id,
-            name: projectFiles.name,
-            type: projectFiles.type,
-        })
-        .from(projectFiles)
-        .where(
-            and(
-                eq(projectFiles.id, fileId),
-                eq(projectFiles.projectId, projectId),
-            ),
-        )
-        .limit(1);
+    const [file] =
+        await db
+            .select({
+                id:
+                    projectFiles.id,
+                name:
+                    projectFiles.name,
+                type:
+                    projectFiles.type,
+            })
+            .from(projectFiles)
+            .where(
+                and(
+                    eq(
+                        projectFiles.id,
+                        fileId,
+                    ),
+                    eq(
+                        projectFiles.projectId,
+                        projectId,
+                    ),
+                ),
+            )
+            .limit(1);
 
     if (!file) {
-        throw new Error("FILE_NOT_FOUND");
+        throw new Error(
+            "FILE_NOT_FOUND",
+        );
     }
 
     async function deleteRecursive(
         currentFileId: string,
     ) {
-        const children = await db
-            .select({
-                id: projectFiles.id,
-            })
-            .from(projectFiles)
-            .where(
-                and(
-                    eq(projectFiles.projectId, projectId),
-                    eq(
-                        projectFiles.parentId,
-                        currentFileId,
+        const children =
+            await db
+                .select({
+                    id:
+                        projectFiles.id,
+                })
+                .from(
+                    projectFiles,
+                )
+                .where(
+                    and(
+                        eq(
+                            projectFiles.projectId,
+                            projectId,
+                        ),
+                        eq(
+                            projectFiles.parentId,
+                            currentFileId,
+                        ),
                     ),
-                ),
-            );
+                );
 
-        for (const child of children) {
-            await deleteRecursive(child.id);
+        for (
+            const child of children
+        ) {
+            await deleteRecursive(
+                child.id,
+            );
         }
 
         await db
-            .delete(projectFiles)
+            .delete(
+                projectFiles,
+            )
             .where(
                 and(
                     eq(
@@ -422,7 +743,9 @@ export async function deleteFile(
             );
     }
 
-    await deleteRecursive(fileId);
+    await deleteRecursive(
+        fileId,
+    );
 
     return file;
 }
