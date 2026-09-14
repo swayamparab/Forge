@@ -1554,22 +1554,58 @@ export default function Workspace({
                             })}
                         </div>
 
-                        {/* Fixed Run Button */}
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setPreviewOpen(true)
-                            }}
-                            disabled={files.length === 0}
-                            title={
-                                files.length > 0
-                                    ? "Run project"
-                                    : "Create a project file first"
-                            }
-                            className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-[11px] text-zinc-400 shadow-sm transition hover:border-zinc-700 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
-                        >
-                            ▶
-                        </button>
+                        {/* Fixed Run Buttons */}
+                        <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
+                            {/* Run active JavaScript/Python file in Terminal */}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (!activeOpenFile) {
+                                        return;
+                                    }
+
+                                    setRunCommand({
+                                        fileName: activeOpenFile.name,
+                                        content: activeOpenFile.content,
+                                    });
+
+                                    setTerminalOpen(true);
+                                }}
+                                disabled={
+                                    !activeOpenFile ||
+                                    !/\.(js|py)$/i.test(activeOpenFile.name)
+                                }
+                                title={
+                                    activeOpenFile
+                                        ? /\\.(js|py)$/i.test(activeOpenFile.name)
+                                            ? `Run ${activeOpenFile.name}`
+                                            : "Run File supports JavaScript and Python"
+                                        : "Select a JavaScript or Python file"
+                                }
+                                className="flex h-7 items-center gap-1 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-[11px] text-zinc-400 shadow-sm transition hover:border-zinc-700 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
+                            >
+                                <span>▶</span>
+                                <span>File</span>
+                            </button>
+
+                            {/* Run complete React/web project in WebContainer */}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setPreviewOpen(true);
+                                }}
+                                disabled={files.length === 0}
+                                title={
+                                    files.length > 0
+                                        ? "Run project"
+                                        : "Create a project file first"
+                                }
+                                className="flex h-7 items-center gap-1 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-[11px] text-zinc-400 shadow-sm transition hover:border-zinc-700 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
+                            >
+                                <span>▶</span>
+                                <span>Project</span>
+                            </button>
+                        </div>
                     </div>
 
                     {/* Editor */}
