@@ -66,6 +66,8 @@ export default function Terminal({
             terminalRef.current,
         );
 
+        terminal.focus();
+
         terminal.writeln(
             "\x1b[90mConnecting to MeshIDE terminal...\x1b[0m",
         );
