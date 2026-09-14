@@ -22,9 +22,14 @@ interface InputMessage {
     data: string;
 }
 
+interface StopMessage {
+    type: "stop";
+}
+
 type TerminalMessage =
     | RunMessage
-    | InputMessage;
+    | InputMessage
+    | StopMessage;
 
 const MAX_FILE_NAME_LENGTH = 255;
 const MAX_CODE_SIZE = 100 * 1024;
@@ -161,14 +166,6 @@ function isValidFileName(
         return false;
     }
 
-    /*
-     * Only allow a plain filename.
-     *
-     * No:
-     *   ../file.js
-     *   folder/file.js
-     *   C:\file.js
-     */
     if (
         path.basename(fileName) !==
         fileName
@@ -240,6 +237,25 @@ function isInputMessage(
     );
 }
 
+function isStopMessage(
+    value: unknown,
+): value is StopMessage {
+    if (
+        typeof value !== "object" ||
+        value === null
+    ) {
+        return false;
+    }
+
+    const message =
+        value as Record<
+            string,
+            unknown
+        >;
+
+    return message.type === "stop";
+}
+
 export function setupTerminalWebSocket(
     server: HttpServer,
 ) {
@@ -251,7 +267,8 @@ export function setupTerminalWebSocket(
             server,
             path: "/terminal",
             maxPayload:
-                MAX_CODE_SIZE + 16 * 1024,
+                MAX_CODE_SIZE +
+                16 * 1024,
 
             verifyClient: (
                 info,
@@ -302,7 +319,8 @@ export function setupTerminalWebSocket(
                  * connection handler can use it.
                  */
                 (
-                    info.req as import("node:http").IncomingMessage & {
+                    info.req as
+                    import("node:http").IncomingMessage & {
                         meshUser?: JwtPayload;
                     }
                 ).meshUser = user;
@@ -430,14 +448,16 @@ export function setupTerminalWebSocket(
                     lastActivity =
                         Date.now();
 
-                    const messageSize = Buffer.byteLength(
-                        message.toString(),
-                        "utf8",
-                    );
+                    const messageSize =
+                        Buffer.byteLength(
+                            message.toString(),
+                            "utf8",
+                        );
 
                     if (
                         messageSize >
-                        MAX_CODE_SIZE + MAX_INPUT_SIZE
+                        MAX_CODE_SIZE +
+                        MAX_INPUT_SIZE
                     ) {
                         sendOutput(
                             socket,
@@ -463,13 +483,19 @@ export function setupTerminalWebSocket(
                         return;
                     }
 
-                    /*
-                     * Program input only.
-                     *
-                     * This is NOT passed to cmd/bash.
-                     * It goes directly to the running
-                     * Node/Python process stdin.
-                     */
+                    if (isStopMessage(parsed)) {
+                        if (runningProcess) {
+                            runningProcess.kill("SIGKILL");
+
+                            sendOutput(
+                                socket,
+                                "\r\n\x1b[33mProcess stopped by user.\x1b[0m\r\n",
+                            );
+                        }
+
+                        return;
+                    }
+                    
                     if (
                         isInputMessage(
                             parsed,
@@ -489,10 +515,14 @@ export function setupTerminalWebSocket(
                         }
 
                         if (
-                            runningProcess?.stdin
+                            runningProcess?.stdin &&
+                            !runningProcess
+                                .stdin
+                                .destroyed
                         ) {
                             runningProcess.stdin.write(
                                 parsed.data,
+                                "utf8",
                             );
                         }
 
@@ -679,14 +709,13 @@ export function setupTerminalWebSocket(
                                     "pipe",
                                     "pipe",
                                 ],
-
-                                /*
-                                 * Never execute through
-                                 * a shell.
-                                 */
                                 shell: false,
                             },
                         );
+
+                    runningProcess.stdin?.setDefaultEncoding(
+                        "utf8",
+                    );
 
                     runInProgress =
                         true;

@@ -31,6 +31,7 @@ import FileTree from "./FileTree";
 import CreateItemDialog from "./CreateItemDialog";
 import WorkspaceDialog from "./WorkspaceDialog";
 import Terminal from "@/components/terminal/Terminal";
+import ReactPreview from "@/components/preview/ReactPreview";
 
 interface WorkspaceProps {
     projectId: string;
@@ -110,6 +111,8 @@ export default function Workspace({
     } | null>(null);
 
     const [terminalOpen, setTerminalOpen] = useState(false);
+
+    const [previewOpen, setPreviewOpen] = useState(false);
 
     const [runCommand, setRunCommand] = useState<{
         fileName: string;
@@ -1555,22 +1558,13 @@ export default function Workspace({
                         <button
                             type="button"
                             onClick={() => {
-                                if (!activeOpenFile) {
-                                    return;
-                                }
-
-                                setRunCommand({
-                                    fileName: activeOpenFile.name,
-                                    content: activeOpenFile.content,
-                                });
-
-                                setTerminalOpen(true);
+                                setPreviewOpen(true)
                             }}
-                            disabled={!activeOpenFile}
+                            disabled={files.length === 0}
                             title={
-                                activeOpenFile
-                                    ? `Run ${activeOpenFile.name}`
-                                    : "Select a file to run"
+                                files.length > 0
+                                    ? "Run project"
+                                    : "Create a project file first"
                             }
                             className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-[11px] text-zinc-400 shadow-sm transition hover:border-zinc-700 hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-30"
                         >
@@ -1672,20 +1666,16 @@ export default function Workspace({
                 </section>
 
                 {/* Right Panel */}
-                <aside className="hidden w-64 shrink-0 border-l border-zinc-800 bg-zinc-950 lg:block">
-                    <div className="flex h-10 items-center border-b border-zinc-800 px-4">
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                            Panel
-                        </span>
-                    </div>
-
-                    <div className="p-4">
-                        <p className="text-xs text-zinc-600">
-                            Additional tools will
-                            appear here.
-                        </p>
-                    </div>
-                </aside>
+                {previewOpen && (
+                    <aside className="hidden w-[45%] min-w-[420px] shrink-0 border-l border-zinc-800 bg-zinc-950 lg:flex">
+                        <ReactPreview
+                            projectId={projectId}
+                            files={files}
+                            openFiles={openFiles}
+                            isOpen={previewOpen}
+                        />
+                    </aside>
+                )}
             </div>
 
             {/* Status Bar */}

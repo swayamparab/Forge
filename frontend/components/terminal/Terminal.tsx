@@ -3,6 +3,7 @@
 import {
     useEffect,
     useRef,
+    useState,
 } from "react";
 
 import {
@@ -41,6 +42,12 @@ export default function Terminal({
         useRef<RunCommand | null>(
             null,
         );
+
+    const inputBufferRef =
+        useRef("");
+
+    const [isRunning, setIsRunning] =
+        useState(false);
 
     useEffect(() => {
         if (!terminalRef.current) {
@@ -85,9 +92,18 @@ export default function Terminal({
 
         const websocketUrl =
             backendUrl
-                .replace(/^http:\/\//, "ws://")
-                .replace(/^https:\/\//, "wss://")
-                .replace(/\/$/, "");
+                .replace(
+                    /^http:\/\//,
+                    "ws://",
+                )
+                .replace(
+                    /^https:\/\//,
+                    "wss://",
+                )
+                .replace(
+                    /\/$/,
+                    "",
+                );
 
         const socket =
             new WebSocket(
@@ -102,9 +118,13 @@ export default function Terminal({
                 "\x1b[32mConnected.\x1b[0m",
             );
 
+            terminal.focus();
+
             if (
                 pendingRunRef.current
             ) {
+                setIsRunning(true);
+
                 socket.send(
                     JSON.stringify({
                         type: "run",
@@ -135,9 +155,9 @@ export default function Terminal({
 
                 if (
                     message.type ===
-                    "output" &&
+                        "output" &&
                     typeof message.data ===
-                    "string"
+                        "string"
                 ) {
                     terminal.write(
                         message.data,
@@ -150,15 +170,20 @@ export default function Terminal({
                     message.type ===
                     "exit"
                 ) {
+                    setIsRunning(false);
+
                     terminal.writeln(
                         "\r\n\x1b[90mTerminal process exited.\x1b[0m",
                     );
                 }
             } catch {
+                // Ignore malformed terminal messages.
             }
         };
 
         socket.onerror = () => {
+            setIsRunning(false);
+
             terminal.writeln(
                 "\r\n\x1b[31mTerminal connection error.\x1b[0m",
             );
@@ -167,6 +192,8 @@ export default function Terminal({
         socket.onclose = (
             event,
         ) => {
+            setIsRunning(false);
+
             if (
                 event.code !== 1000
             ) {
@@ -183,17 +210,102 @@ export default function Terminal({
         const dataDisposable =
             terminal.onData(
                 (data) => {
+                    /*
+                     * Enter
+                     */
                     if (
-                        socket.readyState ===
-                        WebSocket.OPEN
+                        data === "\r" ||
+                        data === "\n"
                     ) {
-                        socket.send(
-                            JSON.stringify({
-                                type: "input",
-                                data,
-                            }),
+                        terminal.write(
+                            "\r\n",
                         );
+
+                        if (
+                            socket.readyState ===
+                            WebSocket.OPEN
+                        ) {
+                            socket.send(
+                                JSON.stringify({
+                                    type: "input",
+                                    data:
+                                        inputBufferRef.current +
+                                        "\n",
+                                }),
+                            );
+                        }
+
+                        inputBufferRef.current =
+                            "";
+
+                        return;
                     }
+
+                    /*
+                     * Backspace
+                     */
+                    if (
+                        data ===
+                        "\u007f"
+                    ) {
+                        if (
+                            inputBufferRef
+                                .current
+                                .length >
+                            0
+                        ) {
+                            inputBufferRef.current =
+                                inputBufferRef.current.slice(
+                                    0,
+                                    -1,
+                                );
+
+                            terminal.write(
+                                "\b \b",
+                            );
+                        }
+
+                        return;
+                    }
+
+                    /*
+                     * Ctrl+C
+                     */
+                    if (
+                        data ===
+                        "\u0003"
+                    ) {
+                        terminal.write(
+                            "^C",
+                        );
+
+                        if (
+                            socket.readyState ===
+                            WebSocket.OPEN
+                        ) {
+                            socket.send(
+                                JSON.stringify({
+                                    type: "input",
+                                    data: "\u0003",
+                                }),
+                            );
+                        }
+
+                        inputBufferRef.current =
+                            "";
+
+                        return;
+                    }
+
+                    /*
+                     * Normal typing
+                     */
+                    terminal.write(
+                        data,
+                    );
+
+                    inputBufferRef.current +=
+                        data;
                 },
             );
 
@@ -206,6 +318,11 @@ export default function Terminal({
 
             socketRef.current =
                 null;
+
+            inputBufferRef.current =
+                "";
+
+            setIsRunning(false);
         };
     }, []);
 
@@ -220,8 +337,13 @@ export default function Terminal({
         if (
             socket &&
             socket.readyState ===
-            WebSocket.OPEN
+                WebSocket.OPEN
         ) {
+            inputBufferRef.current =
+                "";
+
+            setIsRunning(true);
+
             socket.send(
                 JSON.stringify({
                     type: "run",
@@ -239,6 +361,30 @@ export default function Terminal({
             runCommand;
     }, [runCommand]);
 
+    const stopProcess = () => {
+        const socket =
+            socketRef.current;
+
+        if (
+            !socket ||
+            socket.readyState !==
+                WebSocket.OPEN
+        ) {
+            return;
+        }
+
+        socket.send(
+            JSON.stringify({
+                type: "stop",
+            }),
+        );
+
+        inputBufferRef.current =
+            "";
+
+        setIsRunning(false);
+    };
+
     return (
         <section
             className={`flex h-full flex-col ${className}`}
@@ -248,14 +394,28 @@ export default function Terminal({
                     Terminal
                 </span>
 
-                <button
-                    type="button"
-                    onClick={onClose}
-                    className="flex h-6 w-6 items-center justify-center rounded text-zinc-600 transition hover:bg-zinc-800 hover:text-zinc-200"
-                    aria-label="Close terminal"
-                >
-                    ×
-                </button>
+                <div className="flex items-center gap-1">
+                    <button
+                        type="button"
+                        onClick={stopProcess}
+                        disabled={!isRunning}
+                        className="flex h-6 w-6 items-center justify-center rounded text-zinc-600 transition hover:bg-zinc-800 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-20"
+                        aria-label="Stop process"
+                        title="Stop process"
+                    >
+                        ■
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="flex h-6 w-6 items-center justify-center rounded text-zinc-600 transition hover:bg-zinc-800 hover:text-zinc-200"
+                        aria-label="Close terminal"
+                        title="Close terminal"
+                    >
+                        ×
+                    </button>
+                </div>
             </div>
 
             <div
