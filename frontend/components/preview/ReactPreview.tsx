@@ -1,10 +1,25 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import type { FileSystemTree, WebContainer } from "@webcontainer/api";
+import {
+    forwardRef,
+    useEffect,
+    useImperativeHandle,
+    useRef,
+    useState,
+} from "react";
+import type {
+    FileSystemTree,
+    WebContainer,
+} from "@webcontainer/api";
 
 import { getWebContainer } from "@/lib/webcontainer/webcontainer";
-import { buildWebContainerFiles } from "@/lib/webcontainer/webcontainer-files";
+import {
+    buildWebContainerFiles,
+} from "@/lib/webcontainer/webcontainer-files";
+import {
+    deleteFileFromWebContainer,
+    syncFileToWebContainer,
+} from "@/lib/webcontainer/webcontainer-sync";
 import type { ProjectFile } from "@/services/file";
 
 interface OpenFile {
@@ -14,6 +29,17 @@ interface OpenFile {
     savedContent: string;
 }
 
+export interface ReactPreviewHandle {
+    syncFile: (
+        path: string,
+        content: string,
+    ) => Promise<void>;
+
+    deleteFile: (
+        path: string,
+    ) => Promise<void>;
+}
+
 interface ReactPreviewProps {
     projectId: string;
     files: ProjectFile[];
@@ -21,13 +47,21 @@ interface ReactPreviewProps {
     isOpen: boolean;
 }
 
-export default function ReactPreview({
-    projectId,
-    files,
-    openFiles,
-    isOpen,
-}: ReactPreviewProps) {
-    const [status, setStatus] = useState("Ready");
+const ReactPreview = forwardRef<
+    ReactPreviewHandle,
+    ReactPreviewProps
+>(function ReactPreview(
+    {
+        projectId,
+        files,
+        openFiles,
+        isOpen,
+    },
+    ref,
+) {
+    const [status, setStatus] =
+        useState("Ready");
+
     const [previewUrl, setPreviewUrl] =
         useState<string | null>(null);
 
@@ -35,8 +69,48 @@ export default function ReactPreview({
         useState(false);
 
     const devProcessRef = useRef<
-        Awaited<ReturnType<WebContainer["spawn"]>> | null
+        Awaited<
+            ReturnType<WebContainer["spawn"]>
+        > | null
     >(null);
+
+    const containerRef =
+        useRef<WebContainer | null>(null);
+
+    useImperativeHandle(
+        ref,
+        () => ({
+            async syncFile(path, content) {
+                const container =
+                    containerRef.current;
+
+                if (!container) {
+                    return;
+                }
+
+                await syncFileToWebContainer(
+                    container,
+                    path,
+                    content,
+                );
+            },
+
+            async deleteFile(path) {
+                const container =
+                    containerRef.current;
+
+                if (!container) {
+                    return;
+                }
+
+                await deleteFileFromWebContainer(
+                    container,
+                    path,
+                );
+            },
+        }),
+        [],
+    );
 
     useEffect(() => {
         if (!isOpen) {
@@ -49,10 +123,15 @@ export default function ReactPreview({
             try {
                 setIsRunning(true);
                 setPreviewUrl(null);
-                setStatus("Starting React runtime...");
+                setStatus(
+                    "Starting React runtime...",
+                );
 
                 const container =
                     await getWebContainer();
+
+                containerRef.current =
+                    container;
 
                 if (cancelled) {
                     return;
@@ -79,7 +158,9 @@ export default function ReactPreview({
                                 openFile.id,
                         );
 
-                    if (existingIndex !== -1) {
+                    if (
+                        existingIndex !== -1
+                    ) {
                         projectFiles[
                             existingIndex
                         ] = {
@@ -101,7 +182,9 @@ export default function ReactPreview({
                  * A React/Vite project needs package.json.
                  */
                 if (
-                    !filesystem["package.json"]
+                    !filesystem[
+                    "package.json"
+                    ]
                 ) {
                     throw new Error(
                         "This project does not contain a package.json.",
@@ -137,7 +220,9 @@ export default function ReactPreview({
                     return;
                 }
 
-                if (installExitCode !== 0) {
+                if (
+                    installExitCode !== 0
+                ) {
                     throw new Error(
                         "npm install failed.",
                     );
@@ -162,6 +247,7 @@ export default function ReactPreview({
                         }
 
                         setPreviewUrl(url);
+
                         setStatus(
                             "React app is running.",
                         );
@@ -190,10 +276,10 @@ export default function ReactPreview({
                 devProcess.output.pipeTo(
                     new WritableStream({
                         write(data) {
-                            console.log(
-                                "[MeshIDE Project]",
-                                data,
-                            );
+                            // console.log(
+                            //     "[MeshIDE Project]",
+                            //     data,
+                            // );
                         },
                     }),
                 );
@@ -249,6 +335,9 @@ export default function ReactPreview({
 
             devProcessRef.current =
                 null;
+
+            containerRef.current =
+                null;
         };
     }, [isOpen, projectId]);
 
@@ -266,8 +355,8 @@ export default function ReactPreview({
 
                     <span
                         className={`h-1.5 w-1.5 rounded-full ${isRunning
-                            ? "bg-emerald-500"
-                            : "bg-zinc-700"
+                                ? "bg-emerald-500"
+                                : "bg-zinc-700"
                             }`}
                     />
                 </div>
@@ -298,4 +387,8 @@ export default function ReactPreview({
             </div>
         </section>
     );
-}
+});
+
+ReactPreview.displayName = "ReactPreview";
+
+export default ReactPreview;

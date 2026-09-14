@@ -349,9 +349,9 @@ export function setupTerminalWebSocket(
                 return;
             }
 
-            console.log(
-                `Terminal WebSocket connected for user ${user.userId}`,
-            );
+            // console.log(
+            //     `Terminal WebSocket connected for user ${user.userId}`,
+            // );
 
             let runningProcess:
                 ReturnType<typeof spawn> | null =
@@ -908,9 +908,9 @@ export function setupTerminalWebSocket(
 
                     await cleanup();
 
-                    console.log(
-                        `Terminal WebSocket disconnected for user ${user.userId}`,
-                    );
+                    // console.log(
+                    //     `Terminal WebSocket disconnected for user ${user.userId}`,
+                    // );
                 },
             );
 

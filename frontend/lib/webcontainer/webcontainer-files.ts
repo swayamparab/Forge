@@ -52,3 +52,50 @@ export function buildWebContainerFiles(
 
     return buildDirectory(null);
 }
+
+export function getProjectFilePath(
+    fileId: string,
+    files: ProjectFile[],
+): string {
+    const fileById = new Map(
+        files.map((file) => [file.id, file]),
+    );
+
+    const parts: string[] = [];
+    const visited = new Set<string>();
+
+    let current = fileById.get(fileId);
+
+    if (!current) {
+        throw new Error(
+            "File not found in project.",
+        );
+    }
+
+    while (current) {
+        if (visited.has(current.id)) {
+            throw new Error(
+                "Invalid project file hierarchy.",
+            );
+        }
+
+        visited.add(current.id);
+        parts.unshift(current.name);
+
+        if (!current.parentId) {
+            break;
+        }
+
+        current = fileById.get(
+            current.parentId,
+        );
+
+        if (!current) {
+            throw new Error(
+                "Invalid project file hierarchy.",
+            );
+        }
+    }
+
+    return `/${parts.join("/")}`;
+}

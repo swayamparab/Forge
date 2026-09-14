@@ -3,6 +3,7 @@
 import {
     useEffect,
     useMemo,
+    useRef,
     useState,
 } from "react";
 import Link from "next/link";
@@ -31,7 +32,9 @@ import FileTree from "./FileTree";
 import CreateItemDialog from "./CreateItemDialog";
 import WorkspaceDialog from "./WorkspaceDialog";
 import Terminal from "@/components/terminal/Terminal";
-import ReactPreview from "@/components/preview/ReactPreview";
+
+import ReactPreview, { type ReactPreviewHandle } from "@/components/preview/ReactPreview";
+import { getProjectFilePath } from "@/lib/webcontainer/webcontainer-files";
 
 interface WorkspaceProps {
     projectId: string;
@@ -118,6 +121,12 @@ export default function Workspace({
         fileName: string;
         content: string;
     } | null>(null);
+
+    const previewRef = useRef<ReactPreviewHandle>(null);
+
+    const previewSyncTimers = useRef<
+        Record<string, ReturnType<typeof setTimeout>>
+    >({});
 
     const filesQuery = useProjectFiles(projectId);
 
@@ -655,6 +664,22 @@ export default function Workspace({
             },
             {
                 onSuccess: () => {
+
+                    const deletedPath =
+                        getProjectFilePath(
+                            file.id,
+                            files,
+                        );
+
+                    void previewRef.current
+                        ?.deleteFile(deletedPath)
+                        .catch((error) => {
+                            console.error(
+                                "Failed to delete file from preview:",
+                                error,
+                            );
+                        });
+
                     /*
                      * Find every open tab that should
                      * disappear because of this deletion.
@@ -1652,37 +1677,67 @@ export default function Workspace({
                                 language={getLanguageFromFileName(
                                     activeOpenFile.name,
                                 )}
-                                onChange={(
-                                    value,
-                                ) => {
-                                    const nextValue =
-                                        value ??
-                                        "";
+                                onChange={(value) => {
+                                    const nextContent = value ?? "";
+
+                                    setOpenFiles((current) =>
+                                        current.map((file) =>
+                                            file.id === activeOpenFile.id
+                                                ? {
+                                                    ...file,
+                                                    content: nextContent,
+                                                }
+                                                : file,
+                                        ),
+                                    );
+
+                                    const activeFile = files.find(
+                                        (file) =>
+                                            file.id === activeOpenFile.id,
+                                    );
 
                                     if (
-                                        !activeFileId
+                                        activeFile &&
+                                        activeFile.type === "file"
                                     ) {
-                                        return;
-                                    }
+                                        try {
+                                            const path =
+                                                getProjectFilePath(
+                                                    activeFile.id,
+                                                    files,
+                                                );
 
-                                    setOpenFiles(
-                                        (
-                                            current,
-                                        ) =>
-                                            current.map(
-                                                (
-                                                    file,
-                                                ) =>
-                                                    file.id ===
-                                                        activeFileId
-                                                        ? {
-                                                            ...file,
-                                                            content:
-                                                                nextValue,
-                                                        }
-                                                        : file,
-                                            ),
-                                    );
+                                            const existingTimer =
+                                                previewSyncTimers.current[
+                                                activeOpenFile.id
+                                                ];
+
+                                            if (existingTimer) {
+                                                clearTimeout(existingTimer);
+                                            }
+
+                                            previewSyncTimers.current[
+                                                activeOpenFile.id
+                                            ] = setTimeout(() => {
+                                                void previewRef.current
+                                                    ?.syncFile(
+                                                        path,
+                                                        nextContent,
+                                                    )
+                                                    .catch((error) => {
+                                                        console.error(
+                                                            "Failed to sync file to preview:",
+                                                            error,
+                                                        );
+                                                    });
+                                            }, 200);
+                                        } catch (error) {
+                                            console.error(
+                                                "Failed to prepare file sync:",
+                                                error,
+                                            );
+                                        }
+                                    }
                                 }}
                             />
                         )}
@@ -1705,6 +1760,7 @@ export default function Workspace({
                 {previewOpen && (
                     <aside className="hidden w-[45%] min-w-[420px] shrink-0 border-l border-zinc-800 bg-zinc-950 lg:flex">
                         <ReactPreview
+                            ref={previewRef}
                             projectId={projectId}
                             files={files}
                             openFiles={openFiles}
