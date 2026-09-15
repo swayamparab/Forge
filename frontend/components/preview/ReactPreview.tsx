@@ -124,7 +124,7 @@ const ReactPreview = forwardRef<
                 setIsRunning(true);
                 setPreviewUrl(null);
                 setStatus(
-                    "Starting React runtime...",
+                    "Starting project runtime...",
                 );
 
                 const container =
@@ -147,8 +147,8 @@ const ReactPreview = forwardRef<
                 /*
                  * Overlay currently open editor files.
                  *
-                 * This means the user doesn't have to save
-                 * every file before running the project.
+                 * This means the user doesn't have to
+                 * save every file before running the project.
                  */
                 for (const openFile of openFiles) {
                     const existingIndex =
@@ -165,7 +165,7 @@ const ReactPreview = forwardRef<
                             existingIndex
                         ] = {
                             ...projectFiles[
-                            existingIndex
+                                existingIndex
                             ],
                             content:
                                 openFile.content,
@@ -173,23 +173,39 @@ const ReactPreview = forwardRef<
                     }
                 }
 
-                const filesystem =
-                    buildWebContainerFiles(
-                        projectFiles,
+                /*
+                 * Every runnable project needs package.json.
+                 */
+                const packageJsonFile =
+                    projectFiles.find(
+                        (file) =>
+                            file.parentId === null &&
+                            file.name === "package.json" &&
+                            file.type === "file",
                     );
 
-                /*
-                 * A React/Vite project needs package.json.
-                 */
-                if (
-                    !filesystem[
-                    "package.json"
-                    ]
-                ) {
+                if (!packageJsonFile) {
                     throw new Error(
                         "This project does not contain a package.json.",
                     );
                 }
+
+                const packageJson =
+                    packageJsonFile.content ?? "";
+
+                if (!packageJson.trim()) {
+                    throw new Error(
+                        "Invalid package.json.",
+                    );
+                }
+
+                /*
+                 * Build the project filesystem.
+                 */
+                const filesystem =
+                    buildWebContainerFiles(
+                        projectFiles,
+                    );
 
                 setStatus(
                     "Mounting project files...",
@@ -239,12 +255,20 @@ const ReactPreview = forwardRef<
                 container.on(
                     "server-ready",
                     (
-                        _port,
+                        port,
                         url,
                     ) => {
                         if (cancelled) {
                             return;
                         }
+
+                        console.log(
+                            "[MeshIDE] Server ready:",
+                            {
+                                port,
+                                url,
+                            },
+                        );
 
                         setPreviewUrl(url);
 
@@ -254,6 +278,9 @@ const ReactPreview = forwardRef<
                     },
                 );
 
+                /*
+                 * Start the project's Vite development server.
+                 */
                 const devProcess =
                     await container.spawn(
                         "npm",
@@ -276,10 +303,10 @@ const ReactPreview = forwardRef<
                 devProcess.output.pipeTo(
                     new WritableStream({
                         write(data) {
-                            // console.log(
-                            //     "[MeshIDE Project]",
-                            //     data,
-                            // );
+                            console.log(
+                                "[MeshIDE Project]",
+                                data,
+                            );
                         },
                     }),
                 );
@@ -328,8 +355,8 @@ const ReactPreview = forwardRef<
             cancelled = true;
 
             /*
-             * Stop the Vite process when the preview
-             * component is removed.
+             * Stop the development process when the
+             * preview component is removed.
              */
             devProcessRef.current?.kill();
 
@@ -354,10 +381,11 @@ const ReactPreview = forwardRef<
                     </span>
 
                     <span
-                        className={`h-1.5 w-1.5 rounded-full ${isRunning
+                        className={`h-1.5 w-1.5 rounded-full ${
+                            isRunning
                                 ? "bg-emerald-500"
                                 : "bg-zinc-700"
-                            }`}
+                        }`}
                     />
                 </div>
 
