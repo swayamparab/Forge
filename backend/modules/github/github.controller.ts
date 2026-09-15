@@ -8,6 +8,7 @@ import {
     exchangeGithubCode,
     getGithubInstallUrl,
     getGithubInstallations,
+    getGithubInstallationRepositories,
     getGithubUser,
     verifyGithubState,
 } from "./github.service.js";
@@ -96,7 +97,10 @@ export async function connectGithubController(
     }
 }
 
-export async function githubCallbackController(req: Request, res: Response,) {
+export async function githubCallbackController(
+    req: Request,
+    res: Response,
+) {
     const {
         code,
         state,
@@ -179,12 +183,74 @@ export async function githubCallbackController(req: Request, res: Response,) {
             );
 
         /*
-         * Verify which MeshIDE GitHub App
-         * installations this GitHub user can access.
+         * Verify which GitHub App installations
+         * this GitHub user can access.
          */
         const installations =
             await getGithubInstallations(
                 token.access_token!,
+            );
+
+        /*
+         * Fetch repositories accessible through
+         * each installation.
+         *
+         * We do this from GitHub's API instead of
+         * trusting repository information supplied
+         * by the browser.
+         */
+        const installationsWithRepositories =
+            await Promise.all(
+                installations.installations.map(
+                    async (installation) => {
+                        const repositories =
+                            await getGithubInstallationRepositories(
+                                token.access_token!,
+                                installation.id,
+                            );
+
+                        return {
+                            id:
+                                installation.id,
+                            account:
+                                installation
+                                    .account
+                                    .login,
+                            accountId:
+                                installation
+                                    .account
+                                    .id,
+                            accountType:
+                                installation
+                                    .account
+                                    .type,
+                            repositorySelection:
+                                installation
+                                    .repository_selection,
+                            repositories:
+                                repositories
+                                    .repositories
+                                    .map(
+                                        (repository) => ({
+                                            id:
+                                                repository.id,
+                                            name:
+                                                repository.name,
+                                            fullName:
+                                                repository.full_name,
+                                            url:
+                                                repository.html_url,
+                                            private:
+                                                repository.private,
+                                            owner:
+                                                repository
+                                                    .owner
+                                                    .login,
+                                        }),
+                                    ),
+                        };
+                    },
+                ),
             );
 
         res.clearCookie(
@@ -200,13 +266,6 @@ export async function githubCallbackController(req: Request, res: Response,) {
             },
         );
 
-        /*
-         * We deliberately don't persist the token yet.
-         *
-         * The next milestone will introduce the
-         * GitHub connection table and encrypted
-         * credential storage.
-         */
         return res.json({
             success: true,
             message:
@@ -220,29 +279,9 @@ export async function githubCallbackController(req: Request, res: Response,) {
                     githubUser.html_url,
             },
             installations:
-                installations.installations.map(
-                    (installation) => ({
-                        id:
-                            installation.id,
-                        account:
-                            installation
-                                .account
-                                .login,
-                        accountId:
-                            installation
-                                .account
-                                .id,
-                        accountType:
-                            installation
-                                .account
-                                .type,
-                        repositorySelection:
-                            installation.repository_selection,
-                    }),
-                ),
+                installationsWithRepositories,
             meshUserId:
                 statePayload.userId,
-
             projectId:
                 statePayload.projectId,
         });

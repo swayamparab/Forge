@@ -49,6 +49,23 @@ interface GithubInstallationsResponse {
     installations: GithubInstallation[];
 }
 
+interface GithubRepository {
+    id: number;
+    name: string;
+    full_name: string;
+    html_url: string;
+    private: boolean;
+    owner: {
+        login: string;
+        id: number;
+    };
+}
+
+interface GithubInstallationRepositoriesResponse {
+    total_count: number;
+    repositories: GithubRepository[];
+}
+
 function getRequiredEnv(
     name: string,
 ): string {
@@ -247,5 +264,15 @@ export function getGithubInstallations(
     return githubRequest<GithubInstallationsResponse>(
         accessToken,
         "/user/installations",
+    );
+}
+
+export function getGithubInstallationRepositories(
+    accessToken: string,
+    installationId: number,
+) {
+    return githubRequest<GithubInstallationRepositoriesResponse>(
+        accessToken,
+        `/user/installations/${installationId}/repositories`,
     );
 }
